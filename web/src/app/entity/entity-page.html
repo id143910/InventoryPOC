@@ -1,0 +1,221 @@
+<!--
+  One entity, to read. Three parts: what the systems agree it is, what each of them
+  says on its own, and the neighbourhood as boxes. No builder here - a box links
+  into the query surface instead.
+-->
+@if (missing()) {
+  <mat-card class="!border-slate-800 !bg-slate-900/70" appearance="outlined">
+    <mat-card-content><p class="text-slate-400">No such entity.</p></mat-card-content>
+  </mat-card>
+}
+
+@if (entity(); as found) {
+  <mat-card class="mb-5 !border-slate-800 !bg-slate-900/70" appearance="outlined">
+    <mat-card-content>
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">{{ found.label }}</p>
+          <h1 class="mt-1 text-2xl font-bold tracking-tight text-slate-100">{{ found.natural_key }}</h1>
+          <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+            @for (facet of found.facets; track facet.source) {
+              <span class="rounded border px-2 py-1"
+                    [class]="facet.frozen
+                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                      : 'border-slate-700 bg-slate-800 text-slate-300'">
+                {{ facet.source }}@if (facet.frozen) { · quiet }
+              </span>
+            }
+            @if (!found.known) {
+              <span class="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-300">
+                not inventoried — known only from relations
+              </span>
+            }
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- What can be done with this entity, from the config. Nothing is called
+               until one is pressed. -->
+          @for (plugin of actions(); track plugin.name) {
+            <button mat-stroked-button class="!border-slate-600 !text-slate-200"
+                    [disabled]="running() === plugin.name" (click)="act(plugin)">
+              {{ running() === plugin.name ? 'working…' : plugin.label }}
+            </button>
+          }
+          <a mat-stroked-button routerLink="/query" [queryParams]="here"
+             class="!border-cyan-400/50 !text-cyan-300">build a query from here →</a>
+        </div>
+      </div>
+
+      @for (answer of acted(); track answer.name) {
+        <p class="mt-3 rounded border px-3 py-2 text-sm"
+           [class]="answer.ok
+             ? 'border-cyan-400/40 bg-cyan-400/10 text-cyan-200'
+             : 'border-rose-500/40 bg-rose-500/10 text-rose-300'">
+          {{ answer.label }}: {{ answer.message }}
+          @for (field of answer.fields; track field.label) {
+            · {{ field.label }} {{ field.value }}
+          }
+        </p>
+      }
+
+      <!--
+        The header, and where it is corrected. A value is a person's or a sync's;
+        clicking it writes yours, which outranks theirs without hiding it.
+      -->
+      @if (fields().length) {
+        <dl class="mt-5 grid gap-4 border-t border-slate-800 pt-4 sm:grid-cols-2 lg:grid-cols-4">
+          @for (field of fields(); track field.key) {
+            <div [class.sm:col-span-2]="prose(field.key)">
+              <dt class="text-xs uppercase tracking-wider text-slate-500">{{ field.label }}</dt>
+
+              @if (tagged(field.key)) {
+                <!-- A list of words a person put here: each one removable, and one
+                     box to add another. No edit mode, because there is no value to
+                     replace - only tags to add and drop. -->
+                <dd class="mt-1 flex flex-wrap items-center gap-1.5">
+                  @for (tag of tags(field.key); track tag) {
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/50 bg-cyan-400/10 py-0.5 pl-2.5 pr-1 text-xs text-slate-100">
+                      {{ tag }}
+                      <button type="button" (click)="untag(field.key, tag)"
+                              title="drop this tag" aria-label="drop this tag"
+                              class="grid h-4 w-4 place-items-center rounded-full leading-none text-slate-400 hover:bg-cyan-400/25 hover:text-slate-100">
+                        <span aria-hidden="true" class="-mt-px text-sm leading-none">&times;</span>
+                      </button>
+                    </span>
+                  }
+                  <input class="w-28 rounded border border-slate-700 bg-slate-950 px-2 py-0.5 text-xs text-slate-100 outline-none focus:border-cyan-400/50"
+                         placeholder="add a tag" [value]="tagDraft()"
+                         (input)="tagDraft.set($any($event.target).value)"
+                         (keyup.enter)="tag(field.key)">
+                </dd>
+              } @else if (editing() === field.key) {
+                @if (prose(field.key)) {
+                  <textarea rows="2" class="mt-0.5 w-full rounded border border-cyan-400/50 bg-slate-950 px-2 py-1 text-sm text-slate-100 outline-none"
+                            [value]="draft()"
+                            (input)="draft.set($any($event.target).value)"></textarea>
+                } @else {
+                  <input class="mt-0.5 w-full rounded border border-cyan-400/50 bg-slate-950 px-2 py-1 font-medium text-slate-100 outline-none"
+                         [value]="draft()" (input)="draft.set($any($event.target).value)"
+                         (keyup.enter)="save(field.key, draft())">
+                }
+                <div class="mt-1 flex flex-wrap gap-3 text-xs">
+                  <button type="button" class="text-cyan-300" (click)="save(field.key, draft())">save</button>
+                  <button type="button" class="text-slate-500" (click)="editing.set(null)">cancel</button>
+                  @if (written(field.key)) {
+                    <button type="button" class="text-amber-300" (click)="save(field.key, '')">
+                      let the systems say it
+                    </button>
+                  }
+                </div>
+              } @else {
+                <dd class="mt-0.5 cursor-text font-medium text-slate-100 hover:text-cyan-300"
+                    [class.whitespace-pre-line]="prose(field.key)"
+                    title="write your own" (click)="edit(field.key)">
+                  {{ valueOf(field.key)?.value ?? '—' }}
+                </dd>
+                @if (valueOf(field.key); as value) {
+                  <dd class="text-xs" [class]="value.mismatch ? 'text-rose-300' : 'text-slate-600'">
+                    from {{ value.source }}@if (value.mismatch) {
+                      ·
+                      @for (entry of pairs(value.reported); track entry.key) {
+                        @if (entry.key !== value.source) { {{ entry.key }} says {{ entry.value }} }
+                      }
+                    }
+                  </dd>
+                }
+              }
+            </div>
+          }
+        </dl>
+      }
+    </mat-card-content>
+  </mat-card>
+
+  @if (found.facets.length) {
+    <h2 class="mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">What each system says</h2>
+    <div class="grid gap-3 lg:grid-cols-2">
+      @for (facet of found.facets; track facet.source) {
+        <mat-card class="!border-slate-800 !bg-slate-900/70" appearance="outlined">
+          <mat-card-content>
+            <div class="flex flex-wrap items-baseline gap-2 border-b border-slate-800 pb-2">
+              <span class="font-medium text-slate-100">{{ facet.source }}</span>
+              <span class="text-xs text-slate-500">{{ facet.source_type }} feed</span>
+              @if (facet.external_id) {
+                <span class="font-mono text-xs text-slate-500">{{ facet.external_id }}</span>
+              }
+              @if (facet.frozen) {
+                <span class="ml-auto rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-300">
+                  not returned since {{ date(facet.last_seen_at) }}
+                </span>
+              }
+            </div>
+
+            <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              @for (entry of pairs(facet.metadata); track entry.key) {
+                <dt class="uppercase tracking-wider text-slate-500">{{ labelOf(entry.key) }}</dt>
+                <dd class="break-all text-right font-mono text-slate-300">{{ entry.value }}</dd>
+              }
+            </dl>
+
+            <p class="mt-3 border-t border-slate-800 pt-2 text-xs text-slate-600">
+              first seen {{ date(facet.discovered_at) }} ·
+              last seen {{ date(facet.last_seen_at) }} ·
+              synced {{ date(facet.synced_at) }}
+            </p>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+
+  <div class="mb-2 mt-6 flex flex-wrap items-baseline justify-between gap-2">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">The neighbourhood</h2>
+    <button mat-button class="!text-xs" [class]="frozen() ? '!text-amber-300' : '!text-slate-500'"
+            (click)="toggleFrozen()">
+      {{ frozen() ? 'hide' : 'show' }} what is no longer reported
+    </button>
+  </div>
+
+  <div class="grid gap-3 lg:grid-cols-2">
+    <!--
+      What another system says, read when the page opened. Not part of the graph and
+      not stored in it - it is live, and it is somebody else's.
+    -->
+    @for (answer of boxes(); track answer.name) {
+      <mat-card class="overflow-hidden !border-slate-800 !bg-slate-900/70" appearance="outlined">
+        <div class="border-b border-slate-800 px-4 py-3">
+          <p class="font-medium text-slate-100">{{ answer.label }}</p>
+          <p class="mt-0.5 text-xs" [class]="answer.ok ? 'text-slate-500' : 'text-rose-300'">
+            {{ answer.ok ? 'live, from another system' : answer.message }}
+          </p>
+        </div>
+        @if (answer.fields.length) {
+          <dl class="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-sm sm:grid-cols-4">
+            @for (field of answer.fields; track field.label) {
+              <div>
+                <dt class="text-xs uppercase tracking-wider text-slate-500">{{ field.label }}</dt>
+                <dd class="mt-0.5 font-medium text-slate-100">{{ field.value ?? '—' }}</dd>
+              </div>
+            }
+          </dl>
+        }
+      </mat-card>
+    }
+
+    @for (box of found.neighbourhood; track box.hop) {
+      <!-- The same box the dashboard shows a saved query in: a count, a way
+           through to the rows, and the few worth naming here. -->
+      <app-box [heading]="box.reads" [note]="note(box)"
+               [to]="['/query']" [params]="params(box.hop)"
+               [named]="box.named" [others]="box.listed ? 0 : box.others" />
+    } @empty {
+      <mat-card class="!border-slate-800 !bg-slate-900/70" appearance="outlined">
+        <mat-card-content>
+          <p class="text-sm text-slate-500">
+            Nothing relates to this {{ found.label.toLowerCase() }}@if (!frozen()) { that is still being reported }.
+          </p>
+        </mat-card-content>
+      </mat-card>
+    }
+  </div>
+}

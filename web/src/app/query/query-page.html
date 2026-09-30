@@ -1,0 +1,129 @@
+<!--
+  The query surface: one builder, one table. With no hops the rows are entities;
+  with hops they are the occurrences of the last one, one column per metadata key
+  the shape declares. An entity named in a row links out to its own page.
+-->
+@if (result()) {
+  <p class="mb-3 truncate text-xs text-slate-500">{{ result()!.reads }}</p>
+}
+
+<mat-card class="mb-4 !border-slate-800 !bg-slate-900/70" appearance="outlined">
+  <mat-card-content>
+    <app-builder
+      [query]="query()"
+      [types]="schema()?.types ?? []"
+      [operators]="schema()?.operators ?? {}"
+      (stagesChange)="onStages($event)"
+      (typeChange)="onType($event)"
+      (dismiss)="dismiss()" />
+
+    <!-- Letting go of a query, and keeping one. A kept query is this browser's,
+         not the graph's, so it is named here rather than saved anywhere. -->
+    <div class="builder mt-2 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-2">
+      @if (saved.all().length) {
+        <a routerLink="/" class="mr-auto text-xs">your queries ({{ saved.all().length }})</a>
+      } @else {
+        <span class="mr-auto"></span>
+      }
+      <button mat-button class="!text-xs" (click)="reset()">reset</button>
+      @if (naming() !== null) {
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="min-w-56">
+          <input matInput #given class="text-xs" [value]="naming()" placeholder="call it something"
+                 (keyup.enter)="keep(given.value)">
+        </mat-form-field>
+        <button mat-button class="!text-xs !text-cyan-300" (click)="keep(given.value)">keep it</button>
+      } @else {
+        <button mat-button class="!text-xs" (click)="name()">save this query</button>
+      }
+    </div>
+  </mat-card-content>
+</mat-card>
+
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+@if (error()) {
+  <mat-card class="!border-rose-500/40 !bg-rose-500/10" appearance="outlined">
+    <mat-card-content><p class="text-rose-300">{{ error() }}</p></mat-card-content>
+  </mat-card>
+}
+
+@if (result(); as found) {
+  <mat-card class="overflow-hidden !border-slate-800 !bg-slate-900/70" appearance="outlined">
+    <div class="overflow-x-auto">
+      <table mat-table [dataSource]="rows()" class="w-full !bg-transparent">
+        @for (column of columns(); track column) {
+          <ng-container [matColumnDef]="column">
+            <th mat-header-cell *matHeaderCellDef
+                class="!border-slate-800 !text-xs !uppercase !tracking-wider !text-slate-500">
+              {{ label(column) }}
+            </th>
+            <td mat-cell *matCellDef="let row"
+                class="!border-slate-800"
+                [class.font-mono]="column !== 'natural_key' && column !== 'entity' && column !== 'from'"
+                [class.text-xs]="column !== 'natural_key' && column !== 'entity'"
+                [class.text-slate-400]="column !== 'natural_key' && column !== 'entity' && column !== 'from'">
+              @switch (column) {
+                @case ('natural_key') {
+                  <a [routerLink]="['/entity', row.type, row.natural_key]">{{ row.natural_key }}</a>
+                }
+                @case ('sources') {
+                  <span class="text-slate-500">{{ row.sources.join(', ') || '—' }}</span>
+                  @if (hasMismatch(row)) { <span class="text-rose-300">· disagreement</span> }
+                }
+                @case ('entity') {
+                  <a [routerLink]="['/entity', row.entity.type, row.entity.natural_key]">
+                    {{ row.entity.natural_key }}
+                  </a>
+                }
+                @case ('from') {
+                  <a [routerLink]="['/entity', row.from.type, row.from.natural_key]">
+                    {{ row.from.natural_key }}
+                  </a>
+                }
+                @default {
+                @if (listsEntities() && merged(row, column); as value) {
+                  <span [class.text-rose-300]="value.mismatch"
+                        [title]="value.mismatch ? value.source + ' · ' + disagreement(value) : ''">
+                    {{ value.value }}
+                  </span>
+                } @else {
+                  {{ cell(row, column) }}
+                }
+              }
+              }
+            </td>
+          </ng-container>
+        }
+        <tr mat-header-row *matHeaderRowDef="columns()"></tr>
+        <tr mat-row *matRowDef="let row; columns: columns()"
+            class="hover:!bg-slate-800/40" [class.opacity-50]="row.frozen"></tr>
+      </table>
+    </div>
+
+    @if (!rows().length) {
+      <p class="px-4 py-10 text-center text-sm text-slate-500">Nothing matches.</p>
+    }
+
+    <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 px-4 py-2 text-xs text-slate-500">
+      <span>
+        {{ found.total | number }}
+        {{ listsEntities() ? (found.total === 1 ? 'entity' : 'entities') : (found.total === 1 ? 'occurrence' : 'occurrences') }}
+      </span>
+      <button mat-button class="!text-xs" (click)="toggleFrozen()">
+        {{ query().frozen ? 'hide' : 'show' }} what is no longer reported
+      </button>
+    </div>
+
+    @if (found.pages > 1) {
+      <mat-paginator
+        class="!bg-transparent !text-slate-400"
+        [length]="found.total"
+        [pageSize]="25"
+        [pageIndex]="found.page - 1"
+        [hidePageSize]="true"
+        (page)="onPage($event)" />
+    }
+  </mat-card>
+}

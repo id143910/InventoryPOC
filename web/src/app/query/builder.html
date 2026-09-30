@@ -1,0 +1,129 @@
+<!--
+  One control, repeated once per stage. The first has no hop - it is the type you
+  start from, or the entity you are standing on - and that is the only difference.
+-->
+<div class="builder flex flex-col gap-1">
+  @for (row of view(); track row.index) {
+    <div class="flex flex-wrap items-start gap-1.5 py-0.5">
+      <span class="w-4 pt-3 text-center text-slate-600">{{ row.index ? '→' : '' }}</span>
+
+      <!-- Where this stage's rows come from. -->
+      @if (row.index === 0) {
+        @if (pinned()) {
+          <!-- A plain button rather than mat-icon-button: that one carries a
+               40px touch target and its own padding, which will not centre a
+               glyph inside a chip without fighting it. -->
+          <span class="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-cyan-400/50 bg-cyan-400/10 py-1 pl-3 pr-1.5 text-sm">
+            <a [routerLink]="['/entity', query().type, pinned()]" title="read this">{{ pinned() }}</a>
+            <button type="button" (click)="dismiss.emit()"
+                    title="start from every {{ query().type }} instead"
+                    aria-label="start from every one of this type instead"
+                    class="grid h-4 w-4 place-items-center rounded-full leading-none text-slate-400 hover:bg-cyan-400/25 hover:text-slate-100">
+              <span aria-hidden="true" class="-mt-px text-sm leading-none">&times;</span>
+            </button>
+          </span>
+        } @else {
+          <mat-form-field appearance="outline" subscriptSizing="dynamic" class="min-w-44">
+            <mat-label>start from</mat-label>
+            <mat-select [value]="query().type" (valueChange)="typeChange.emit($event)">
+              @for (type of types(); track type.type) {
+                <mat-option [value]="type.type">{{ type.label }} ({{ type.count | number }})</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+        }
+      } @else {
+        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="min-w-64">
+          <mat-label>then</mat-label>
+          <mat-select [value]="hopOf(row.index)" (valueChange)="onHop(row.index, $event)">
+            <mat-option value="">and then…</mat-option>
+            @for (hop of row.hops; track hop.hop) {
+              <mat-option [value]="hop.hop">
+                {{ hop.reads }}@if (hop.total) { ({{ hop.active | number }})}
+              </mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+
+      <!-- What narrows it. Stage 0 pinned to one entity needs no narrowing. -->
+      @if (row.index > 0 || !pinned()) {
+        <div class="flex flex-wrap items-start gap-2">
+          <span class="pt-3 text-xs uppercase tracking-wider text-slate-500">where</span>
+
+          @if (showsMatch(row)) {
+            <mat-form-field appearance="outline" subscriptSizing="dynamic" class="w-20">
+              <mat-select [value]="matchOf(row.index)" (valueChange)="onMatch(row.index, $event)">
+                @for (match of matches; track match) {
+                  <mat-option [value]="match">{{ match }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          }
+
+          <div class="flex flex-col gap-1">
+            @for (item of row.conditions; track $index) {
+              <div class="flex flex-wrap items-center gap-1.5">
+                <mat-form-field appearance="outline" subscriptSizing="dynamic" class="min-w-44">
+                  <mat-select [value]="item.condition.field"
+                              (valueChange)="onField(row.index, $index, $event)"
+                              placeholder="—">
+                    <mat-option value="">—</mat-option>
+                    @for (group of grouped(row.fields); track group.group) {
+                      <mat-optgroup [label]="group.group">
+                        @for (field of group.fields; track field.value) {
+                          <mat-option [value]="field.value">{{ field.label }}</mat-option>
+                        }
+                      </mat-optgroup>
+                    }
+                  </mat-select>
+                </mat-form-field>
+
+                @if (item.condition.field) {
+                  <!-- What may be asked depends on how the field reads: an expiry
+                       gets before and after, prose gets contains. -->
+                  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="w-32">
+                    <mat-select [value]="item.condition.operator"
+                                (valueChange)="onOperator(row.index, $index, $event)">
+                      @for (operator of item.operators; track operator) {
+                        <mat-option [value]="operator">{{ operator }}</mat-option>
+                      }
+                    </mat-select>
+                  </mat-form-field>
+
+                  @if (item.entry) {
+                    <!-- A threshold is not in the list of values present, and neither
+                         is a fragment, so those are typed in. -->
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="w-44">
+                      <input matInput [value]="item.condition.value" [type]="item.entry"
+                             [placeholder]="item.hint" class="font-mono text-xs"
+                             (change)="onValue(row.index, $index, $any($event.target).value)">
+                    </mat-form-field>
+                  } @else {
+                    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="min-w-48 max-w-72">
+                      <mat-select [value]="item.condition.value"
+                                  (valueChange)="onValue(row.index, $index, $event)"
+                                  panelClass="font-mono">
+                        <mat-option value="">anything</mat-option>
+                        @for (option of item.values; track option.value) {
+                          <mat-option [value]="option.value">
+                            {{ option.value }} ({{ option.count | number }})
+                          </mat-option>
+                        }
+                        @if (item.truncated) {
+                          <mat-option [disabled]="true">
+                            — only the {{ item.values.length }} most common are listed —
+                          </mat-option>
+                        }
+                      </mat-select>
+                    </mat-form-field>
+                  }
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

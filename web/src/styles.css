@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/* Angular Material's dark cyan theme is the base: it already supplies the couple
+   of hundred --mat-sys-* variables its components read, on a dark surface with a
+   cyan primary. What it does not supply is the *hue* of that dark - its surfaces
+   are teal-black, and this application reads as slate-blue. So the surface family
+   and the accent are reshaded below and nothing else is touched. */
+@import "@angular/material/prebuilt-themes/cyan-orange.css";
+
+/* Tailwind's slate for every surface, Tailwind's cyan for everything that can be
+   acted on. Written out as hex rather than referenced from Tailwind, because
+   Material reads these as plain CSS variables and never sees a utility class. */
+html {
+  color-scheme: dark;
+
+  /* slate-950 under the page, slate-900 for anything raised off it */
+  --mat-sys-background: #020617;
+  --mat-sys-surface: #020617;
+  --mat-sys-surface-dim: #020617;
+  --mat-sys-surface-bright: #1e293b;
+  --mat-sys-surface-container-lowest: #020617;
+  --mat-sys-surface-container-low: #0f172a;
+  --mat-sys-surface-container: #0f172a;
+  --mat-sys-surface-container-high: #1e293b;
+  --mat-sys-surface-container-highest: #334155;
+
+  /* slate-200 to read on it, slate-400 for the quieter half */
+  --mat-sys-on-background: #e2e8f0;
+  --mat-sys-on-surface: #e2e8f0;
+  --mat-sys-on-surface-variant: #94a3b8;
+  --mat-sys-surface-variant: #1e293b;
+
+  /* slate-800 for the lines between things, slate-600 where one needs to be seen */
+  --mat-sys-outline-variant: #1e293b;
+  --mat-sys-outline: #475569;
+
+  /* cyan-400: the one colour that means "this does something" */
+  --mat-sys-primary: #22d3ee;
+  --mat-sys-primary-fixed: #67e8f9;
+  --mat-sys-primary-fixed-dim: #22d3ee;
+  --mat-sys-primary-container: #164e63;
+  --mat-sys-on-primary: #042f3d;
+  --mat-sys-on-primary-container: #a5f3fc;
+  --mat-sys-on-primary-fixed: #083344;
+  --mat-sys-on-primary-fixed-variant: #155e75;
+  --mat-sys-surface-tint: #22d3ee;
+  --mat-sys-inverse-primary: #0e7490;
+
+  /* rose-400, for a disagreement between two systems */
+  --mat-sys-error: #fb7185;
+  --mat-sys-on-error: #4c0519;
+  --mat-sys-error-container: #881337;
+  --mat-sys-on-error-container: #fecdd3;
+
+  /* amber-400, for what a source has stopped reporting */
+  --mat-sys-tertiary: #fbbf24;
+  --mat-sys-on-tertiary: #451a03;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+}
+
+/* Material paints its form fields from the surface family, which puts them the
+   same colour as the card they sit in. One shade down separates them. */
+.mat-mdc-form-field .mdc-text-field--outlined {
+  background-color: #020617;
+}
+
+/* The query builder is a row of pickers read as a sentence, not a form to fill in,
+   so its fields are smaller than Material's default. Done with the form-field
+   tokens rather than a density mixin, because that mixin is Sass-only and this
+   application has no Sass. Scoped to the builder: everything else keeps the
+   default size. */
+.builder {
+  --mat-form-field-container-height: 38px;
+  --mat-form-field-container-vertical-padding: 7px;
+  --mat-form-field-container-text-size: 0.8rem;
+  --mat-form-field-container-text-line-height: 1.15rem;
+  --mat-form-field-outlined-label-text-size: 0.8rem;
+  --mat-form-field-outlined-label-text-populated-size: 0.75rem;
+  --mat-select-trigger-text-size: 0.8rem;
+}
+
+/* The chosen value is the thing being read, so it gets the room the label gives up. */
+.builder .mat-mdc-select-value,
+.builder .mat-mdc-input-element {
+  font-size: 0.8rem;
+}
+
+/* A link is cyan and only underlines when reached for - the same rule the
+   server-rendered version follows. */
+a {
+  color: #67e8f9;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #a5f3fc;
+  text-decoration: underline;
+}

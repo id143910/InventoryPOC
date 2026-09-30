@@ -1,0 +1,21 @@
+<!--
+  The saved queries, each as a box: what you called it, how many it finds now, and
+  the first few. The heading opens it in the builder.
+-->
+<div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+  <h1 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Your queries</h1>
+  <a routerLink="/query" class="text-xs">build another →</a>
+</div>
+
+<div class="grid gap-3 lg:grid-cols-2">
+  @for (card of cards(); track card.name) {
+    <app-box [heading]="card.name" [note]="card.note" [to]="['/query']" [params]="card.params"
+             [named]="card.named" [others]="card.others">
+      <button type="button" (click)="forget(card.name)"
+              title="forget this query" aria-label="forget this query"
+              class="grid h-6 w-6 place-items-center rounded-full leading-none text-slate-500 hover:bg-slate-800 hover:text-slate-200">
+        <span aria-hidden="true" class="-mt-px text-base leading-none">&times;</span>
+      </button>
+    </app-box>
+  }
+</div>

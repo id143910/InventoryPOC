@@ -1,0 +1,6 @@
+# One line ending in the repository, whatever anybody checks it out on.
+* text=auto eol=lf
+
+# The database is not text and must never be normalised: git rewriting a byte in it
+# would corrupt the thing the tests read.
+*.db binary

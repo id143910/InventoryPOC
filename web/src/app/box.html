@@ -1,0 +1,29 @@
+<!--
+  A heading that is also the way through to the rows, and the few names worth
+  putting on the front of it.
+-->
+<mat-card class="overflow-hidden !border-slate-800 !bg-slate-900/70" appearance="outlined">
+  <div class="flex items-start gap-2 border-b border-slate-800">
+    <a [routerLink]="to()" [queryParams]="params()"
+       class="block flex-1 px-4 py-3 !text-inherit hover:!bg-slate-800/40 hover:!no-underline">
+      <p class="font-medium text-slate-100">{{ heading() }}</p>
+      <p class="mt-0.5 text-xs text-slate-500">{{ note() }}</p>
+    </a>
+    <div class="pr-2 pt-2"><ng-content /></div>
+  </div>
+
+  @if (named().length || others()) {
+    <p class="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 text-sm">
+      @for (one of named(); track one.type + one.natural_key) {
+        <span>
+          <a [routerLink]="['/entity', one.type, one.natural_key]">{{ one.natural_key }}</a>@if (one.occurrences && one.occurrences > 1) {
+            <span class="text-xs text-slate-500"> ×{{ one.occurrences }}</span>
+          }
+        </span>
+      }
+      @if (others() > 0) {
+        <span class="self-center text-xs text-slate-500">and {{ others() | number }} others</span>
+      }
+    </p>
+  }
+</mat-card>

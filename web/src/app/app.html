@@ -1,0 +1,16 @@
+<!--
+  The shell. Slate under everything, cyan for anything that does something - the
+  same palette the server-rendered version uses, so the two can be compared on
+  their behaviour rather than their colours.
+-->
+<mat-toolbar class="!bg-slate-900 !text-slate-300 border-b border-slate-800 gap-3">
+  <a routerLink="/" class="text-sm font-semibold tracking-tight !text-slate-300 hover:!text-cyan-300">
+    Inventory graph
+  </a>
+  <span class="flex-1"></span>
+  <a href="/docs" target="_blank" rel="noopener" class="text-xs">API</a>
+</mat-toolbar>
+
+<main class="mx-auto max-w-6xl px-4 pt-6 pb-16">
+  <router-outlet />
+</main>

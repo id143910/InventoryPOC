@@ -1,0 +1,241 @@
+# The inventory graph's configuration — the only thing that is not in the
+# database, and the one file both implementations read.
+#
+# It answers three questions the rows cannot answer for themselves:
+#
+#   * which fields to merge when several systems describe one entity, and who
+#     wins when they disagree
+#   * which metadata keys identify an occurrence of a relation rather than
+#     merely describing it
+#   * which fields are worth offering as filters
+#
+# Everything else — the shapes, the counts, the vocabulary, the values behind
+# every filter — is read back out of the data.
+#
+# YAML on disk because this is meant to be edited by people and reviewed in git;
+# the application is handed it as JSON. Read through a source seam, so "the file
+# beside me" can become "whatever the gitops repository currently says" without
+# anything downstream noticing.
+
+# How to read a metadata key, wherever it appears - on an entity or on a link.
+# Anything not named here is text.
+#
+# The type decides two things: which operators a condition on that key may use, and
+# how its values are compared. A date is an ISO-8601 string, so it orders correctly
+# as text and needs no conversion; a number does not, so it is read as one. Keys are
+# typed once here rather than per place they appear, because a key means the same
+# thing wherever it is - `not_after` is a date on the link just as
+# `current_not_after` is one on the certificate.
+field_types:
+  # A list of words a person put on an entity. It is asked `includes` rather than
+  # `is`, because one entity carries several and any of them may be the one meant.
+  tags: tags
+  current_not_after: date
+  not_after: date
+  installed_on_date: date
+  last_boot: date
+  port: number
+  renewals: number
+
+# What a person says, as a source of its own.
+#
+# Overriding a field never edits a sync's row: nothing writes to what ADF owns.
+# It writes one more row, from a source called Maestro whose source_type is manual,
+# and that source outranks every authority declared below - so the person's value is
+# the one on the header, and every system's value is still shown beside it as a
+# disagreement. Clearing the last override deletes the row, and the syncs are
+# trusted again.
+#
+# `fields` are the keys only a person ever sets, which is why no sync reports them.
+# They merge, display and filter exactly like any other field.
+manual:
+  source: Maestro
+  source_type: manual
+  fields:
+    - { key: tags, label: Tags }
+    - { key: comment, label: Comment }
+
+entity_types:
+  server:
+    label: Server
+    # Most trusted source first. The merged header takes each field from the
+    # first source here that reports it, and flags the others when they disagree.
+    authority: [snow, sccm]
+    unified:
+      - { key: environment, label: Environment }
+      - { key: region, label: Region }
+      - { key: os_version, label: OS version }
+      - { key: lifecycle, label: Lifecycle }
+    # Offered as conditions. natural_key and external_id are always available.
+    filters: [environment, region, os_version, lifecycle, support_group]
+
+  certificate:
+    label: Certificate
+    # The certificate platform knows more about a certificate than the CMDB does.
+    authority: [appviewx, snow, sccm]
+    unified:
+      # Version-specific, but worth carrying on the header: the newest thumbprint
+      # and expiry are what anybody asks about first. Every version ever
+      # installed still appears in the relations.
+      - { key: current_thumbprint, label: Current thumbprint }
+      - { key: current_not_after, label: Latest expiry }
+      - { key: issuer, label: Issuer }
+      - { key: key_algorithm, label: Key algorithm }
+    filters: [issuer, key_algorithm, current_not_after, current_thumbprint]
+
+  package:
+    label: Package
+    authority: [sccm]
+    unified:
+      - { key: ecosystem, label: Ecosystem }
+      - { key: category, label: Category }
+    filters: [ecosystem, category]
+
+  application:
+    label: Application
+    authority: [snow, azuredevops]
+    unified:
+      - { key: tier, label: Tier }
+      - { key: criticality, label: Criticality }
+    filters: [tier, criticality]
+
+  pipeline:
+    label: Pipeline
+    authority: [azuredevops]
+    unified:
+      - { key: trigger, label: Trigger }
+      - { key: repository, label: Repository }
+    filters: [trigger, repository]
+
+  team:
+    label: Team
+    authority: [snow]
+    unified:
+      - { key: cost_center, label: Cost centre }
+      - { key: contact, label: Contact }
+    filters: [cost_center]
+
+  stakeholder:
+    label: Stakeholder
+    authority: [snow]
+    unified:
+      - { key: role, label: Role }
+    filters: [role]
+
+# One entry per shape of relation. `identity` is what makes an occurrence
+# distinct; `attributes` merely describe it; `filters` is what a condition may be
+# about. A shape that declares no identity is unique on its endpoints alone.
+relations:
+  - source_type: certificate
+    relation_type: installed_on
+    target_type: server
+    # A certificate keeps one name across renewals and can be installed twice on
+    # one host — in two stores, or as a renewal beside the thumbprint it
+    # replaced. The thumbprint and the location are what tell those apart.
+    identity: [thumbprint, location]
+    attributes: [location_type, not_after, bound_to]
+    filters: [location, location_type, thumbprint, not_after]
+    description: One installed copy of one version, in one store. The same certificate can be installed twice on one host.
+
+  - source_type: package
+    relation_type: installed_on
+    target_type: server
+    identity: [version]
+    attributes: [install_scope, installed_on_date]
+    filters: [version, install_scope]
+    description: Two versions side by side are two occurrences.
+
+  - source_type: application
+    relation_type: runs_on
+    target_type: server
+    identity: [instance]
+    attributes: [port, runtime]
+    filters: [instance, runtime, port]
+    description: An application may run several instances on one host.
+
+  - source_type: pipeline
+    relation_type: deploys
+    target_type: application
+    identity: [stage]
+    attributes: [last_run_status]
+    filters: [stage, last_run_status]
+
+  - source_type: certificate
+    relation_type: managed_by
+    target_type: team
+    attributes: [responsibility]
+    filters: [responsibility]
+
+  - source_type: server
+    relation_type: managed_by
+    target_type: team
+    attributes: [responsibility]
+    filters: [responsibility]
+
+  - source_type: application
+    relation_type: managed_by
+    target_type: team
+    attributes: [responsibility]
+    filters: [responsibility]
+
+  - source_type: server
+    relation_type: owned_by
+    target_type: stakeholder
+    attributes: [accountability]
+    filters: [accountability]
+
+  - source_type: team
+    relation_type: owned_by
+    target_type: stakeholder
+    attributes: [accountability]
+    filters: [accountability]
+
+# What else can be done with an entity, beyond reading it and following it.
+#
+# A plugin is a REST endpoint and a name for it. Two kinds, because there are only
+# two things a page does with one:
+#
+#   * a `box` is read when the page opens and displayed beside the neighbourhood -
+#     something another system knows that this graph does not
+#   * an `action` is a button, and is only called when somebody presses it
+#
+# `{...}` in a url or a body is filled from the entity: its natural_key, its
+# entity_type, or any field on its merged header - so a renewal can send the
+# thumbprint it is replacing without anything being hard-coded. A url substitution is
+# percent-encoded and a body one is JSON-encoded, each for where it lands.
+#
+# The browser never calls these itself: the API does it, so the endpoint needs no
+# CORS, can sit inside the network, and can hold a credential the browser must not
+# see. Only urls written here are ever called.
+#
+# `method` defaults to GET for a box and POST for an action. `fields` are the paths
+# worth reading out of the answer, dotted for nesting; with none named, a box shows
+# every top-level pair. `message` is the one path an action reports back.
+#
+# These point at /mock, which is this API pretending to be Azure DevOps and
+# Dynatrace. Going real means changing these urls and deleting Plugins/Mock.cs.
+plugins:
+  certificate:
+    - name: renew
+      label: Renew
+      kind: action
+      url: http://127.0.0.1:5080/mock/devops/pipelines/certificate-renewal/runs
+      body:
+        certificate: "{natural_key}"
+        thumbprint: "{current_thumbprint}"
+        issuer: "{issuer}"
+        requested_by: maestro
+      message: state
+
+  # The connectivity example, on server rather than site: there is no site type in
+  # this graph, and pointing this at one is a one-line change here.
+  server:
+    - name: connection
+      label: Connectivity
+      kind: box
+      url: "http://127.0.0.1:5080/mock/dynatrace/connections?host={natural_key}&region={region}"
+      fields:
+        - { path: data.status, label: Status }
+        - { path: data.throughput_mbps, label: Throughput }
+        - { path: data.latency_ms, label: Latency }
+        - { path: data.checked_at, label: Checked }

@@ -1,0 +1,13 @@
+{
+  "//": "The dev server serves this app on 4200; the API answers on 5080. Everything under /api and /docs goes there, so the app only ever asks for relative paths.",
+  "/api": {
+    "target": "http://127.0.0.1:5080",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/docs": {
+    "target": "http://127.0.0.1:5080",
+    "secure": false,
+    "changeOrigin": true
+  }
+}

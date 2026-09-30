@@ -1,0 +1,18 @@
+# Build output
+bin/
+obj/
+node_modules/
+web/.angular/
+web/dist/
+
+# The database is committed on purpose: it is the fixture the tests read and the
+# data the app shows, and there is no generator in the repository to rebuild it
+# from. Its write-ahead log is not - it is a transient companion to the file, and
+# a checkpointed database holds everything it held.
+inventory.db-wal
+inventory.db-shm
+
+# Editors
+.vs/
+.idea/
+*.user
