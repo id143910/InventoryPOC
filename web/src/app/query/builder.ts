@@ -156,8 +156,12 @@ export class BuilderComponent {
     this.replace(index, (stage) => {
       const conditions = [...stage.conditions];
       // A field cleared is a condition removed; a field set keeps neither its value
-      // nor its operator, because the new field may not be able to answer it.
-      conditions[slot] = { ...blankCondition(), field };
+      // nor its operator, because the new field may not be able to answer it. It
+      // starts on `is` where it can, and on the first thing it can be asked where not.
+      const allowed = this.operators()[this.typeOf(this.rows()[index]?.fields ?? [], field)] ?? [];
+      const blank = blankCondition();
+      const operator = allowed.length && !allowed.includes(blank.operator) ? allowed[0] : blank.operator;
+      conditions[slot] = { ...blank, field, operator };
       return { ...stage, conditions: conditions.filter((item, at) => item.field || at === slot) };
     });
   }

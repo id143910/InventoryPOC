@@ -30,6 +30,9 @@ field_types:
   # A list of words a person put on an entity. It is asked `includes` rather than
   # `is`, because one entity carries several and any of them may be the one meant.
   tags: tags
+  # Prose a person wrote. Asked `contains` only, and a table shows the first line
+  # of it with the rest on hover, so a long comment cannot squeeze its row's key.
+  comment: long_text
   current_not_after: date
   not_after: date
   installed_on_date: date

@@ -111,6 +111,8 @@ public sealed class Config
     public const string Date = "date";
     public const string Number = "number";
     public const string Tags = "tags";
+    /// <summary>Prose a person wrote: filtered like text, shown cut short in a table.</summary>
+    public const string LongText = "long_text";
 
     public const string Is = "is";
     public const string IsNot = "is not";
@@ -137,6 +139,8 @@ public sealed class Config
             // A list is not equal to one of its members, so neither `is` nor
             // `contains` is offered: "tags includes audit" is the only true sentence.
             [Tags] = [Includes, Excludes],
+            // Nobody types a whole comment back to match it, so only a fragment is asked.
+            [LongText] = [Contains],
         };
 
     /// <summary>Operators that ask for a threshold rather than a value, so a picker

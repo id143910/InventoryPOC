@@ -82,7 +82,7 @@ public static class Ask
     public const string InstalledOn = "outgoing:installed_on:server";
     public const string ManagesCerts = "incoming:managed_by:certificate";
     public const string Cert = "service-0003.example.com";
-    public const string Team = "Team 02";
+    public const string Team = "Customer Portal";
 }
 
 public sealed class ReadingARelation(Graph graph) : IClassFixture<Graph>
@@ -129,7 +129,7 @@ public sealed class ReadingARelation(Graph graph) : IClassFixture<Graph>
             Ask.Hop(Ask.ManagesCerts, Stage.All, Ask.Where("entity:issuer", "DigiCert Global G2")),
             Ask.Hop(Ask.InstalledOn, Stage.All, Ask.Where("link:location", "My")));
         Assert.Equal(
-            "Team 02 → certificate managed by where issuer is DigiCert Global G2"
+            "Customer Portal → certificate managed by where issuer is DigiCert Global G2"
             + " → installed on server where location is My",
             asked.Reads(graph.Config));
     }
@@ -999,7 +999,7 @@ public sealed class Plugging(Graph graph) : IClassFixture<Graph>
 
         Run(config, "team", Ask.Team, stub);
 
-        Assert.Contains("host=Team%2002", stub.Asked!.RequestUri!.AbsoluteUri);
+        Assert.Contains("host=Customer%20Portal", stub.Asked!.RequestUri!.AbsoluteUri);
     }
 
     [Fact]
