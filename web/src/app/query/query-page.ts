@@ -1,5 +1,7 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
+import { rxResource, toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -12,9 +14,9 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import {
-  ALL, Api, EntityRow, LONG_TEXT, Occurrence, Query, Result, Schema, Stage, Value,
+  ALL, Api, EntityRow, LONG_TEXT, Occurrence, Query, Result, Stage, Value,
   blankCondition, decodeStages, paramsOf,
 } from '../api';
 import { Saved } from '../saved';
@@ -54,10 +56,46 @@ export class QueryPageComponent {
   private readonly router = inject(Router);
   readonly saved = inject(Saved);
 
-  readonly schema = signal<Schema | null>(null);
-  readonly query = signal<Query>({ type: '', key: null, stages: [], frozen: false, page: 1 });
-  readonly error = signal<string | null>(null);
-  readonly loading = signal(false);
+  /** The query, as the URL carries it. */
+  readonly typeParam = input<string | undefined>(undefined, { alias: 'type' });
+  readonly keyParam = input<string | undefined>(undefined, { alias: 'key' });
+  readonly stagesParam = input<string | undefined>(undefined, { alias: 'stages' });
+  readonly frozenParam = input<string | undefined>(undefined, { alias: 'frozen' });
+  readonly pageParam = input<string | undefined>(undefined, { alias: 'page' });
+
+  readonly schema = toSignal(this.api.schema(), { initialValue: null });
+
+  /** The query the URL describes. With no type named, the first one there is. */
+  readonly query = computed<Query>(() => ({
+    type: this.typeParam() ?? this.schema()?.types[0]?.type ?? '',
+    key: this.keyParam() ?? null,
+    stages: decodeStages(this.stagesParam() ?? null) ?? [
+      { hop: null, match: ALL, conditions: [blankCondition()] },
+    ],
+    frozen: this.frozenParam() === '1',
+    page: Number(this.pageParam() ?? 1),
+  }));
+
+  /**
+   * The answer to the query in the URL. A new query cancels the one in flight, so
+   * a slow answer to an older question can never land on the table after the
+   * newer one. Each answer is shaped by the query it belongs to - see `view`.
+   */
+  private readonly answer = rxResource({
+    params: () => (this.query().type ? this.query() : undefined),
+    stream: ({ params: query }) => {
+      // The query decides which call to make; the answer decides what the table is.
+      const entities = query.stages.length <= 1;
+      const call: Observable<Result<EntityRow | Occurrence>> = entities
+        ? this.api.entities(query)
+        : this.api.occurrences(query);
+      return call.pipe(map((result): View => ({ entities, result, columns: this.shape(entities, query, result) })));
+    },
+  });
+  readonly loading = computed(() => this.answer.isLoading());
+  readonly error = computed(() => this.answer.status() === 'error'
+    ? (this.answer.error() as HttpErrorResponse | undefined)?.error?.detail ?? 'That query could not be built.'
+    : null);
 
   /** The name being given to this query, while one is being given. */
   readonly naming = signal<string | null>(null);
@@ -68,35 +106,24 @@ export class QueryPageComponent {
    * The rows and the columns that read them have to change together. Deriving the
    * columns from the query while the rows came from the last response leaves one
    * render where a table of occurrences is read as a table of entities, and the
-   * cells reach for fields that are not there. So the shape travels with the rows.
+   * cells reach for fields that are not there. So the shape travels with the rows,
+   * worked out from the query they answered rather than the one in the URL now.
+   *
+   * While the next answer is on its way the last one stays on screen, as a table
+   * does when you turn its page; a query that fails clears it.
    */
-  readonly view = signal<View | null>(null);
+  readonly view = linkedSignal<{ answered: View | undefined; failed: boolean }, View | null>({
+    source: () => ({
+      answered: this.answer.hasValue() ? this.answer.value() : undefined,
+      failed: this.answer.status() === 'error',
+    }),
+    computation: (now, before) => now.answered ?? (now.failed ? null : before?.value ?? null),
+  });
 
   readonly columns = computed(() => this.view()?.columns ?? []);
   readonly rows = computed(() => this.view()?.result.data ?? []);
   readonly listsEntities = computed(() => this.view()?.entities ?? true);
   readonly result = computed(() => this.view()?.result ?? null);
-
-  constructor() {
-    this.api.schema().subscribe((schema) => {
-      this.schema.set(schema);
-      this.route.queryParamMap.subscribe((params) => {
-        const type = params.get('type') ?? schema.types[0]?.type ?? '';
-        const key = params.get('key');
-        const stages = decodeStages(params.get('stages')) ?? [
-          { hop: null, match: ALL, conditions: [blankCondition()] },
-        ];
-        this.query.set({
-          type,
-          key,
-          stages,
-          frozen: params.get('frozen') === '1',
-          page: Number(params.get('page') ?? 1),
-        });
-        this.load();
-      });
-    });
-  }
 
   /** Every change to the query goes through the URL, so back and links both work. */
   apply(query: Query, page = 1): void {
@@ -194,29 +221,6 @@ export class QueryPageComponent {
     if (column === 'source' || column === 'sources') return 'Reported by';
     if (column === 'natural_key') return this.query().type;
     return this.schema()?.labels?.[column] ?? column.replace(/_/g, ' ');
-  }
-
-  private load(): void {
-    const query = this.query();
-    if (!query.type) return;
-    // The query decides which call to make; the answer decides what the table is.
-    const entities = query.stages.length <= 1;
-    this.loading.set(true);
-    this.error.set(null);
-    const call: Observable<Result<EntityRow | Occurrence>> = entities
-      ? this.api.entities(query)
-      : this.api.occurrences(query);
-    call.subscribe({
-      next: (result: Result<EntityRow | Occurrence>) => {
-        this.view.set({ entities, result, columns: this.shape(entities, query, result) });
-        this.loading.set(false);
-      },
-      error: (response: { error?: { detail?: string } }) => {
-        this.error.set(response.error?.detail ?? 'That query could not be built.');
-        this.view.set(null);
-        this.loading.set(false);
-      },
-    });
   }
 
   /**

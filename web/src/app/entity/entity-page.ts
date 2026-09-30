@@ -1,11 +1,13 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { rxResource, toSignal } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatIconModule } from '@angular/material/icon';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import {
-  ACTION, ALL, Answer, Api, BOX, Box, Entity, Plugin, Schema, TAGS, Value, encodeStages,
+  ACTION, ALL, Answer, Api, BOX, Box, Plugin, TAGS, Value, encodeStages,
 } from '../api';
 import { BoxComponent } from '../box';
 
@@ -38,10 +40,25 @@ export class EntityPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  readonly entity = signal<Entity | null>(null);
-  readonly schema = signal<Schema | null>(null);
-  readonly frozen = signal(false);
-  readonly missing = signal(false);
+  /** The route's `:type` and `:key`, and its `?frozen=1`. */
+  readonly type = input.required<string>();
+  readonly key = input.required<string>();
+  readonly frozenParam = input<string | undefined>(undefined, { alias: 'frozen' });
+  readonly frozen = computed(() => this.frozenParam() === '1');
+
+  readonly schema = toSignal(this.api.schema(), { initialValue: null });
+
+  /**
+   * The entity the route names. When the route names another one, the read in
+   * flight for the last is cancelled, so a slow answer about the entity you just
+   * left can never land on the page of the one you are reading.
+   */
+  private readonly found = rxResource({
+    params: () => ({ type: this.type(), key: this.key(), frozen: this.frozen() }),
+    stream: ({ params }) => this.api.entity(params.type, params.key, params.frozen),
+  });
+  readonly entity = computed(() => (this.found.hasValue() ? this.found.value() : null));
+  readonly missing = computed(() => this.found.status() === 'error');
 
   /** The field being written, while one is being written, and what is typed in it. */
   readonly editing = signal<string | null>(null);
@@ -60,28 +77,27 @@ export class EntityPageComponent {
   readonly running = signal<string | null>(null);
 
   constructor() {
-    this.api.schema().subscribe((schema) => this.schema.set(schema));
-    this.route.paramMap.subscribe((params) => {
-      const type = params.get('type')!;
-      const key = params.get('key')!;
-      this.route.queryParamMap.subscribe((query) => {
-        this.frozen.set(query.get('frozen') === '1');
-        this.read(type, key);
-      });
-    });
-  }
-
-  private read(type: string, key: string): void {
-    this.api.entity(type, key, this.frozen()).subscribe({
-      next: (found) => {
-        this.entity.set(found);
-        this.missing.set(false);
-        this.fill(found);
-      },
-      error: () => {
-        this.entity.set(null);
-        this.missing.set(true);
-      },
+    // Every box this entity has, read afresh whenever the entity is. The reads for
+    // an entity no longer on the page are cancelled rather than left to land on it.
+    effect((onCleanup) => {
+      const found = this.entity();
+      this.boxes.set([]);
+      this.acted.set([]);
+      if (!found) return;
+      const reads = new Subscription();
+      for (const plugin of found.plugins.filter((item) => item.kind === BOX)) {
+        reads.add(this.api.plugin(found.type, found.natural_key, plugin.name, BOX).subscribe({
+          next: (answer) => this.boxes.update((kept) => [...kept, answer]),
+          // One that cannot be read arrives as its reason - otherwise it would say
+          // "Reading…" forever.
+          error: (response: { error?: { detail?: string } }) =>
+            this.boxes.update((kept) => [...kept, {
+              ...plugin, ok: false, status: 0, fields: [],
+              message: response.error?.detail ?? `${plugin.label} could not be read`,
+            }]),
+        }));
+      }
+      onCleanup(() => reads.unsubscribe());
     });
   }
 
@@ -147,27 +163,10 @@ export class EntityPageComponent {
 
   private write(key: string, value: unknown): void {
     const found = this.entity()!;
+    // Read again rather than patched locally: the facets change too, and the page
+    // keeps showing the old answer until the new one is in.
     this.api.manual(found.type, found.natural_key, { [key]: value })
-      .subscribe(() => this.read(found.type, found.natural_key));
-  }
-
-  /**
-   * Read every box this type has. They arrive as they arrive, and one that cannot
-   * be read arrives as its reason - otherwise it would say "Reading…" forever.
-   */
-  private fill(found: Entity): void {
-    this.boxes.set([]);
-    this.acted.set([]);
-    for (const plugin of found.plugins.filter((item) => item.kind === BOX)) {
-      this.api.plugin(found.type, found.natural_key, plugin.name, BOX).subscribe({
-        next: (answer) => this.boxes.update((kept) => [...kept, answer]),
-        error: (response: { error?: { detail?: string } }) =>
-          this.boxes.update((kept) => [...kept, {
-            ...plugin, ok: false, status: 0, fields: [],
-            message: response.error?.detail ?? `${plugin.label} could not be read`,
-          }]),
-      });
-    }
+      .subscribe(() => this.found.reload());
   }
 
   /**
