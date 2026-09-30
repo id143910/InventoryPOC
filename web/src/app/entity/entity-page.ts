@@ -161,6 +161,16 @@ export class EntityPageComponent {
     }
   }
 
+  /**
+   * The boxes this type has, whether or not they have answered yet.
+   *
+   * From the config rather than from the answers, so the section is there while they
+   * are still being read and the page does not jump when they arrive.
+   */
+  readable(): Plugin[] {
+    return (this.entity()?.plugins ?? []).filter((item) => item.kind === BOX);
+  }
+
   /** The buttons this type offers. Nothing is called until one is pressed. */
   actions(): Plugin[] {
     return (this.entity()?.plugins ?? []).filter((item) => item.kind === ACTION);

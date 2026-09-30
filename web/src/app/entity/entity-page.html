@@ -168,6 +168,40 @@
     </div>
   }
 
+  @if (readable().length) {
+    <h2 class="mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">Plugins</h2>
+    <div class="grid gap-3 lg:grid-cols-2">
+      <!--
+        What another system says, read when the page opened. Not part of the graph and
+        not stored in it - it is live, and it is somebody else's.
+      -->
+      @for (answer of boxes(); track answer.name) {
+        <mat-card class="overflow-hidden !border-slate-800 !bg-slate-900/70" appearance="outlined">
+          <div class="border-b border-slate-800 px-4 py-3">
+            <p class="font-medium text-slate-100">{{ answer.label }}</p>
+            <p class="mt-0.5 text-xs" [class]="answer.ok ? 'text-slate-500' : 'text-rose-300'">
+              {{ answer.ok ? 'live, from another system' : answer.message }}
+            </p>
+          </div>
+          @if (answer.fields.length) {
+            <dl class="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-sm sm:grid-cols-4">
+              @for (field of answer.fields; track field.label) {
+                <div>
+                  <dt class="text-xs uppercase tracking-wider text-slate-500">{{ field.label }}</dt>
+                  <dd class="mt-0.5 font-medium text-slate-100">{{ field.value ?? '—' }}</dd>
+                </div>
+              }
+            </dl>
+          }
+        </mat-card>
+      } @empty {
+        <!-- The heading is drawn from what the config declares, so it is here before
+             the answers are; a slow endpoint should not make the page jump. -->
+        <p class="text-sm text-slate-500">Reading…</p>
+      }
+    </div>
+  }
+
   <div class="mb-2 mt-6 flex flex-wrap items-baseline justify-between gap-2">
     <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Related entities</h2>
     <button mat-button class="!text-xs" [class]="frozen() ? '!text-amber-300' : '!text-slate-500'"
@@ -177,31 +211,6 @@
   </div>
 
   <div class="grid gap-3 lg:grid-cols-2">
-    <!--
-      What another system says, read when the page opened. Not part of the graph and
-      not stored in it - it is live, and it is somebody else's.
-    -->
-    @for (answer of boxes(); track answer.name) {
-      <mat-card class="overflow-hidden !border-slate-800 !bg-slate-900/70" appearance="outlined">
-        <div class="border-b border-slate-800 px-4 py-3">
-          <p class="font-medium text-slate-100">{{ answer.label }}</p>
-          <p class="mt-0.5 text-xs" [class]="answer.ok ? 'text-slate-500' : 'text-rose-300'">
-            {{ answer.ok ? 'live, from another system' : answer.message }}
-          </p>
-        </div>
-        @if (answer.fields.length) {
-          <dl class="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-sm sm:grid-cols-4">
-            @for (field of answer.fields; track field.label) {
-              <div>
-                <dt class="text-xs uppercase tracking-wider text-slate-500">{{ field.label }}</dt>
-                <dd class="mt-0.5 font-medium text-slate-100">{{ field.value ?? '—' }}</dd>
-              </div>
-            }
-          </dl>
-        }
-      </mat-card>
-    }
-
     @for (box of found.neighbourhood; track box.hop) {
       <!-- The same box the dashboard shows a saved query in: a count, a way
            through to the rows, and the few worth naming here. -->
