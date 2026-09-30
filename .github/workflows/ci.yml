@@ -1,0 +1,37 @@
+# Every push to main and every pull request: the API's tests, and the app's build.
+#
+# The tests read a copy of inventory.db, so the committed file must come out of
+# them untouched; the last step says so if it does not.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - run: dotnet test api/Inventory.sln
+      - name: The committed database is untouched
+        run: git diff --exit-code -- inventory.db
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
