@@ -151,13 +151,22 @@ export class EntityPageComponent {
       .subscribe(() => this.read(found.type, found.natural_key));
   }
 
-  /** Read every box this type has. They arrive as they arrive. */
+  /**
+   * Read every box this type has. They arrive as they arrive, and one that cannot
+   * be read arrives as its reason - otherwise it would say "Reading…" forever.
+   */
   private fill(found: Entity): void {
     this.boxes.set([]);
     this.acted.set([]);
     for (const plugin of found.plugins.filter((item) => item.kind === BOX)) {
-      this.api.plugin(found.type, found.natural_key, plugin.name, BOX)
-        .subscribe((answer) => this.boxes.update((kept) => [...kept, answer]));
+      this.api.plugin(found.type, found.natural_key, plugin.name, BOX).subscribe({
+        next: (answer) => this.boxes.update((kept) => [...kept, answer]),
+        error: (response: { error?: { detail?: string } }) =>
+          this.boxes.update((kept) => [...kept, {
+            ...plugin, ok: false, status: 0, fields: [],
+            message: response.error?.detail ?? `${plugin.label} could not be read`,
+          }]),
+      });
     }
   }
 
