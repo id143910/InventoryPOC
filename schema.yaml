@@ -24,8 +24,11 @@
 # how its values are compared. A date is an ISO-8601 string, so it orders correctly
 # as text and needs no conversion; a number does not, so it is read as one. Keys are
 # typed once here rather than per place they appear, because a key means the same
-# thing wherever it is - `not_after` is a date on the link just as
+# thing wherever it is - `not_after` is an expiry on the link just as
 # `current_not_after` is one on the certificate.
+#
+# An `expiry` is a date that is a deadline: asked exactly like a date, but shown
+# with how near it is, and coloured once it is close or past.
 field_types:
   # A list of words a person put on an entity. It is asked `includes` rather than
   # `is`, because one entity carries several and any of them may be the one meant.
@@ -33,8 +36,8 @@ field_types:
   # Prose a person wrote. Asked `contains` only, and a table shows the first line
   # of it with the rest on hover, so a long comment cannot squeeze its row's key.
   comment: long_text
-  current_not_after: date
-  not_after: date
+  current_not_after: expiry
+  not_after: expiry
   installed_on_date: date
   last_boot: date
   port: number

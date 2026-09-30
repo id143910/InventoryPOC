@@ -114,7 +114,11 @@
                 <dd class="mt-0.5 cursor-text font-medium text-slate-100 hover:text-cyan-300"
                     [class.whitespace-pre-line]="prose(field.key)"
                     title="write your own" (click)="edit(field.key)">
-                  {{ valueOf(field.key)?.value ?? '—' }}
+                  @if (expiry(field.key) && valueOf(field.key)?.value) {
+                    <app-expiry [value]="valueOf(field.key)?.value" />
+                  } @else {
+                    {{ valueOf(field.key)?.value ?? '—' }}
+                  }
                 </dd>
                 @if (valueOf(field.key); as value) {
                   <dd class="text-xs" [class]="value.mismatch ? 'text-rose-300' : 'text-slate-600'">
@@ -134,15 +138,16 @@
     </mat-card-content>
   </mat-card>
 
-  @if (found.facets.length) {
+  <!-- The syncs only: what a person said is already on the header, marked as theirs. -->
+  @if (systems().length) {
     <h2 class="mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">What each system says</h2>
     <div class="grid gap-3 lg:grid-cols-2">
-      @for (facet of found.facets; track facet.source) {
+      @for (facet of systems(); track facet.source) {
         <mat-card class="!border-slate-800 !bg-slate-900/70" appearance="outlined">
           <mat-card-content>
             <div class="flex flex-wrap items-baseline gap-2 border-b border-slate-800 pb-2">
               <span class="font-medium text-slate-100">{{ facet.source }}</span>
-              <span class="text-xs text-slate-500">{{ facet.source_type }} feed</span>
+              <span class="text-xs text-slate-500">{{ kind(facet) }}</span>
               @if (facet.external_id) {
                 <span class="font-mono text-xs text-slate-500">{{ facet.external_id }}</span>
               }

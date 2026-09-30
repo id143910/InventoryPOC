@@ -5,9 +5,10 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatIconModule } from '@angular/material/icon';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
-  ACTION, ALL, Answer, Api, BOX, Box, Entity, Plugin, Schema, TAGS, Value, encodeStages,
+  ACTION, ALL, Answer, Api, BOX, Box, EXPIRY, Entity, Facet, Plugin, Schema, TAGS, Value, encodeStages,
 } from '../api';
 import { BoxComponent } from '../box';
+import { ExpiryComponent } from '../expiry';
 
 /**
  * One entity, to read rather than to query.
@@ -28,7 +29,7 @@ import { BoxComponent } from '../box';
 @Component({
   selector: 'app-entity-page',
   imports: [
-    RouterLink, BoxComponent,
+    RouterLink, BoxComponent, ExpiryComponent,
     MatButtonModule, MatCardModule, MatChipsModule, MatIconModule,
   ],
   templateUrl: './entity-page.html',
@@ -121,6 +122,26 @@ export class EntityPageComponent {
   save(key: string, value: string): void {
     this.editing.set(null);
     this.write(key, value);
+  }
+
+  /** A deadline, shown with how near it is. */
+  expiry(key: string): boolean {
+    return this.schema()?.field_types?.[key] === EXPIRY;
+  }
+
+  /** Every source but the person, whose word the header already shows as theirs. */
+  systems(): Facet[] {
+    const manual = this.schema()?.manual.source;
+    return (this.entity()?.facets ?? []).filter((facet) => facet.source !== manual);
+  }
+
+  /**
+   * How a source's rows got here. A system's "manual" means somebody typed the
+   * record into it - not the same thing as a person's override here, which is why
+   * the two are never both called manual.
+   */
+  kind(facet: Facet): string {
+    return facet.source_type === 'automated' ? 'automated feed' : 'entered by hand';
   }
 
   /** A list of words rather than a value, so it gets chips rather than a text box. */

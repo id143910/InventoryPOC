@@ -51,13 +51,18 @@ export class Saved {
   }
 }
 
-/** What makes a query that query, without where you happened to be in it. */
+/**
+ * What makes a query that query, without where you happened to be in it. Its order
+ * is part of it: "certificates, soonest expiry first" is a different question from
+ * "certificates", and its box should name the soonest.
+ */
 function bare(query: Query): Query {
   return {
     type: query.type,
     key: query.key,
     stages: query.stages.filter((stage, index) => index === 0 || stage.hop),
     frozen: query.frozen,
+    sort: query.sort || null,
   };
 }
 

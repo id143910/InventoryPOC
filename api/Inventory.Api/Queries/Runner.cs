@@ -53,7 +53,7 @@ public sealed class Runner(Config config)
     {
         query.Validate();
         var sql = new Bag();
-        return Paged(db, Start(query, sql), sql, query, "key",
+        return Paged(db, Start(query, sql), sql, query, Ordered(query, EntityOrder(query, sql), "q.key"),
             rows => db.Query<EntityKey>(rows, sql.Parameters).ToList());
     }
 
@@ -71,8 +71,57 @@ public sealed class Runner(Config config)
         var sql = new Bag();
         var last = query.Stages.Count - 1;
         var rows = Crossing(query, last, Reached(query, last - 1, sql), sql, OccurrenceColumns);
-        return Paged(db, rows, sql, query, "to_key, from_key, relation_id",
+        return Paged(db, rows, sql, query,
+            Ordered(query, OccurrenceOrder(query), "q.to_key, q.from_key, q.relation_id"),
             page => db.Query(page, sql.Parameters).Select(Read).ToList());
+    }
+
+    /// <summary>
+    /// Where each of these rows began: the stage-0 entities that reach each key the
+    /// last hop set out from.
+    ///
+    /// Asked only for the keys on the page in hand, so the rows, their count and
+    /// their order stay exactly what <see cref="Occurrences"/> made them. Across one
+    /// hop the answer is the key itself, and nothing needs asking.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Origins(
+        IDbConnection db, Query query, IReadOnlyCollection<string> fromKeys)
+    {
+        if (query.Stages.Count <= 2 || fromKeys.Count == 0)
+        {
+            return fromKeys.Distinct().ToDictionary(key => key, key => (IReadOnlyList<string>)[key]);
+        }
+        var sql = new Bag();
+        var reached = Reached(query, query.Stages.Count - 2, sql, origin: true);
+        var keys = string.Join(", ", fromKeys.Distinct().Select(key => sql.Of(key)));
+        return db.Query<(string Key, string Origin)>(
+                $"SELECT DISTINCT key, origin FROM ({reached}) WHERE key IN ({keys}) ORDER BY key, origin",
+                sql.Parameters)
+            .GroupBy(row => row.Key)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<string>)[.. group.Select(row => row.Origin)]);
+    }
+
+    /// <summary>
+    /// Entities whose key has this in it: those that start with it first, then the
+    /// shortest, which is usually the one meant. Inventoried entities and those known
+    /// only from a relation both count - either can be opened.
+    /// </summary>
+    public IReadOnlyList<EntityKey> Search(IDbConnection db, string text, int limit)
+    {
+        text = text.Trim();
+        if (text.Length == 0)
+        {
+            return [];
+        }
+        return db.Query<EntityKey>("""
+            SELECT type, key FROM (
+                SELECT entity_type AS type, natural_key AS key FROM inventory_entity
+                UNION SELECT source_type, source_key FROM inventory_relation
+                UNION SELECT target_type, target_key FROM inventory_relation)
+            WHERE key LIKE '%' || @text || '%'
+            ORDER BY key NOT LIKE @text || '%', length(key), key, type
+            LIMIT @limit
+            """, new { text, limit }).ToList();
     }
 
     private Page<T> Paged<T>(IDbConnection db, string rows, Bag sql, Query query, string order,
@@ -83,7 +132,7 @@ public sealed class Runner(Config config)
         {
             return new Page<T>([], 0, query.Page, query.PageSize);
         }
-        var page = $"SELECT * FROM ({rows}) ORDER BY {order} LIMIT {sql.Of(query.PageSize)} OFFSET {sql.Of(query.Offset)}";
+        var page = $"SELECT q.* FROM ({rows}) q ORDER BY {order} LIMIT {sql.Of(query.PageSize)} OFFSET {sql.Of(query.Offset)}";
         return new Page<T>(read(page), total, query.Page, query.PageSize);
     }
 
@@ -143,6 +192,55 @@ public sealed class Runner(Config config)
             sql.Parameters).ToList();
     }
 
+    // ---------------------------------------------------------------- ordering
+
+    /// <summary>
+    /// The asked-for order, then the default one to settle ties. A row with no value
+    /// goes last whichever way the column is read, so blanks never lead the table.
+    /// </summary>
+    private static string Ordered(Query query, string? column, string fallback) =>
+        column is null
+            ? fallback
+            : $"({column}) IS NULL, ({column}) {(query.Sort!.Descending ? "DESC" : "ASC")}, {fallback}";
+
+    /// <summary>
+    /// An entity field's trusted value, as the header would show it: a person's
+    /// first, then each source in the config's order of authority.
+    /// </summary>
+    private string? EntityOrder(Query query, Bag sql)
+    {
+        if (query.Sort is not { } sort)
+        {
+            return null;
+        }
+        if (sort.Column == "natural_key")
+        {
+            return "q.key";
+        }
+        var ranking = config.Ranking(query.Type);
+        var rank = string.Join(" ", ranking.Select((source, at) => $"WHEN {sql.Of(source)} THEN {at}"));
+        var column = Typed(EntityColumn("o", sort.Column), sort.Column);
+        return $"""
+            SELECT {column} FROM inventory_entity o
+            WHERE o.entity_type = q.type AND o.natural_key = q.key AND {column} IS NOT NULL
+            ORDER BY CASE o.source {rank} ELSE {ranking.Length} END LIMIT 1
+            """;
+    }
+
+    /// <summary>An occurrence's ends by their keys, anything else by its link's value.</summary>
+    private string? OccurrenceOrder(Query query) => query.Sort?.Column switch
+    {
+        null => null,
+        Sort.Entity => "q.to_key",
+        Sort.From or Sort.Origin => "q.from_key",
+        Sort.Source => "q.source",
+        var name => Typed($"json_extract(q.metadata, '$.{name}')", name),
+    };
+
+    /// <summary>A number orders as one; everything else orders as its text.</summary>
+    private string Typed(string column, string name) =>
+        config.FieldType(name) == Config.Number ? $"CAST({column} AS REAL)" : column;
+
     // ----------------------------------------------------------------- stages
 
     /// <summary>
@@ -193,16 +291,25 @@ public sealed class Runner(Config config)
             """;
     }
 
-    /// <summary>The pairs standing at the end of a stage, as a chain of CTEs.</summary>
-    private string Reached(Query query, int upto, Bag sql)
+    /// <summary>
+    /// The pairs standing at the end of a stage, as a chain of CTEs - each carrying
+    /// the stage-0 key it began from, when asked to.
+    /// </summary>
+    private string Reached(Query query, int upto, Bag sql, bool origin = false)
     {
         var reached = Start(query, sql);
+        if (origin)
+        {
+            reached = $"SELECT type, key, key AS origin FROM ({reached})";
+        }
+        var carried = origin ? "p.origin AS origin, " : "";
         for (var index = 1; index <= upto; index++)
         {
             // Every stage deduplicates, which is what stops a fan-out from
             // multiplying out and stops a certificate installed three times on one
             // host from dragging that host through three times.
-            reached = Crossing(query, index, reached, sql, "DISTINCT r.{far_type} AS type, r.{far_key} AS key");
+            reached = Crossing(query, index, reached, sql,
+                $"DISTINCT {carried}r.{{far_type}} AS type, r.{{far_key}} AS key");
         }
         return reached;
     }
@@ -345,7 +452,7 @@ public sealed class Runner(Config config)
     private static object Bind(Condition condition, string type)
     {
         // A date may be written relative to today, which is the form worth saving.
-        if (type == Config.Date)
+        if (type is Config.Date or Config.Expiry)
         {
             return Moment.Resolve(condition.Value);
         }

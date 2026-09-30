@@ -318,8 +318,9 @@ public sealed class TypedFields(Graph graph) : IClassFixture<Graph>
         : graph.Runner.Occurrences(graph.Connection, query).Total;
 
     [Theory]
-    [InlineData("current_not_after", Config.Date)]
-    [InlineData("not_after", Config.Date)]
+    [InlineData("current_not_after", Config.Expiry)]
+    [InlineData("not_after", Config.Expiry)]
+    [InlineData("last_boot", Config.Date)]
     [InlineData("port", Config.Number)]
     [InlineData("renewals", Config.Number)]
     [InlineData("issuer", Config.Text)]
@@ -381,7 +382,7 @@ public sealed class TypedFields(Graph graph) : IClassFixture<Graph>
     public void AFieldCarriesHowItReads()
     {
         var offered = graph.Options.Fields(Queries.Hop.Parse(Ask.InstalledOn), "certificate");
-        Assert.Equal(Config.Date, offered.Single(field => field.Value == "link:not_after").Type);
+        Assert.Equal(Config.Expiry, offered.Single(field => field.Value == "link:not_after").Type);
         Assert.Equal(Config.Text, offered.Single(field => field.Value == "link:location").Type);
     }
 
@@ -810,9 +811,11 @@ public sealed class Tagging(Graph graph) : IClassFixture<Graph>
                 Ask.Query("server", null, Ask.Start(Stage.All, Ask.Where("entity:tags", "", Config.Includes))),
                 0, 0);
 
-            // The tags, not the lists they came in: "audit" twice and "pci" once.
+            // The tags, not the lists they came in: "audit" twice and "pci" once. The
+            // seeded data carries tags of its own, so only these two are counted here.
             Assert.Equal([("audit", 2), ("pci", 1)],
-                offered.Select(item => (item.Value, item.Count)));
+                offered.Where(item => item.Value is "audit" or "pci").Select(item => (item.Value, item.Count)));
+            Assert.DoesNotContain(offered, item => item.Value.StartsWith('['));
         }
         finally
         {
@@ -1075,4 +1078,120 @@ public sealed class Plugging(Graph graph) : IClassFixture<Graph>
         Assert.True(connection.Reads);
         Assert.Equal("GET", connection.Method);
     }
+}
+
+/// <summary>
+/// Ordering a table by one of its columns: on the server, because a table is a page
+/// of something larger, and a sorted page is no use if the rest is not.
+/// </summary>
+public sealed class Sorting(Graph graph) : IClassFixture<Graph>
+{
+    private static Query Sorted(Query query, string sort) => query with { Sort = Sort.Parse(sort) };
+
+    private List<string?> Expiries(Query query)
+    {
+        var keys = graph.Runner.Keys(graph.Connection, query).Items;
+        var views = graph.Entities.Views(graph.Connection, keys);
+        return [.. keys.Select(key => views[(key.Type, key.Key)].Values
+            .SingleOrDefault(value => value.Key == "current_not_after")?.Trusted?.ToString())];
+    }
+
+    [Fact]
+    public void EntitiesOrderByTheValueTheHeaderShows()
+    {
+        var soonest = Expiries(Sorted(Ask.Query("certificate"), "current_not_after"));
+        Assert.Equal(soonest.Order(StringComparer.Ordinal), soonest);
+
+        var latest = Expiries(Sorted(Ask.Query("certificate"), "-current_not_after"));
+        Assert.Equal(latest.OrderDescending(StringComparer.Ordinal), latest);
+        Assert.True(string.CompareOrdinal(latest[0], soonest[0]) > 0);
+    }
+
+    [Fact]
+    public void OccurrencesOrderByTheirLinkAndBlanksGoLast()
+    {
+        var rows = graph.Runner.Occurrences(graph.Connection,
+            Sorted(Ask.Query("certificate", null, Ask.Start(), Ask.Hop(Ask.InstalledOn)), "-bound_to")).Items;
+        var bound = rows.Select(row => row.Metadata.GetValueOrDefault("bound_to")?.ToString()).ToList();
+        var blank = bound.FindIndex(value => string.IsNullOrEmpty(value));
+        Assert.True(blank < 0 || bound.Skip(blank).All(string.IsNullOrEmpty));
+    }
+
+    [Fact]
+    public void ANumberOrdersAsANumber()
+    {
+        var ports = graph.Runner.Occurrences(graph.Connection,
+                Sorted(Ask.Query("application", null, Ask.Start(), Ask.Hop("outgoing:runs_on:server")), "port"))
+            .Items.Select(row => Convert.ToDouble(row.Metadata["port"]?.ToString())).ToList();
+        Assert.Equal(ports.Order(), ports);
+    }
+
+    [Fact]
+    public void SortingChangesTheOrderNotTheRows()
+    {
+        var query = Ask.Query("server");
+        Assert.Equal(graph.Runner.Keys(graph.Connection, query).Total,
+                     graph.Runner.Keys(graph.Connection, Sorted(query, "-os_version")).Total);
+    }
+
+    [Theory]
+    [InlineData("current_not_after; DROP TABLE x")]
+    [InlineData("-")]
+    public void AnUnsafeColumnIsRejected(string sort) => Assert.Throws<QueryError>(() => Sort.Parse(sort));
+
+    [Fact]
+    public void WhereARowBeganOrdersOnlyAcrossOneHop()
+    {
+        var longer = Sorted(Ask.Query("team", null, Ask.Start(), Ask.Hop(Ask.ManagesCerts), Ask.Hop(Ask.InstalledOn)), "origin");
+        Assert.Throws<QueryError>(() => graph.Runner.Occurrences(graph.Connection, longer));
+    }
+}
+
+/// <summary>Where each row of a longer chain began, which the table shows beside it.</summary>
+public sealed class Origins(Graph graph) : IClassFixture<Graph>
+{
+    [Fact]
+    public void EveryRowKnowsTheTeamItCameFrom()
+    {
+        var query = Ask.Query("team", null, Ask.Start(), Ask.Hop(Ask.ManagesCerts), Ask.Hop(Ask.InstalledOn));
+        var rows = graph.Runner.Occurrences(graph.Connection, query).Items;
+        var origins = graph.Runner.Origins(graph.Connection, query, [.. rows.Select(row => row.FromKey)]);
+        Assert.All(rows, row => Assert.NotEmpty(origins[row.FromKey]));
+
+        // And each is right: the certificate is one that team manages.
+        var row = rows[0];
+        var team = origins[row.FromKey][0];
+        var managed = graph.Runner.Occurrences(graph.Connection,
+            Ask.Query("team", team, Ask.Start(), Ask.Hop(Ask.ManagesCerts))).Items;
+        Assert.Contains(managed, one => one.ToKey == row.FromKey);
+    }
+
+    [Fact]
+    public void AcrossOneHopARowBeganWhereItCameFrom()
+    {
+        var query = Ask.Query("certificate", null, Ask.Start(), Ask.Hop(Ask.InstalledOn));
+        var origins = graph.Runner.Origins(graph.Connection, query, [Ask.Cert]);
+        Assert.Equal([Ask.Cert], origins[Ask.Cert]);
+    }
+}
+
+public sealed class Searching(Graph graph) : IClassFixture<Graph>
+{
+    [Fact]
+    public void FindsByAnyPartOfTheKeyStartersFirst()
+    {
+        var found = graph.Runner.Search(graph.Connection, "server-0036", 5);
+        Assert.Equal(new EntityKey("server", "prod-server-0036"), found[0]);
+
+        var starting = graph.Runner.Search(graph.Connection, "pay", 5);
+        Assert.StartsWith("pay", starting[0].Key, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FindsWhatIsKnownOnlyFromARelation() =>
+        Assert.Contains(new EntityKey("server", "edge-appliance-0060"),
+            graph.Runner.Search(graph.Connection, "edge-appliance-0060", 5));
+
+    [Fact]
+    public void NothingAskedFindsNothing() => Assert.Empty(graph.Runner.Search(graph.Connection, "  ", 5));
 }

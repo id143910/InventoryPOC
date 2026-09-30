@@ -48,7 +48,7 @@ public sealed record Condition(string Field, string Operator, string Value)
 
     // A field name reaches SQL as a JSON path, so it is validated here rather
     // than quoted there. Nothing downstream has to wonder.
-    private static readonly Regex SafeName = new(@"^[A-Za-z0-9_][A-Za-z0-9_.-]*$", RegexOptions.Compiled);
+    internal static readonly Regex SafeName = new(@"^[A-Za-z0-9_][A-Za-z0-9_.-]*$", RegexOptions.Compiled);
 
     public string Kind => Field.Split(':', 2)[0];
 
@@ -110,6 +110,38 @@ public sealed record Condition(string Field, string Operator, string Value)
         }
         return new Condition(field, @operator, value);
     }
+}
+
+/// <summary>
+/// The column a table is ordered by. Written <c>name</c> or <c>-name</c> on the wire,
+/// the minus meaning descending, so it travels in a URL as one short parameter.
+/// </summary>
+public sealed record Sort(string Column, bool Descending)
+{
+    /// <summary>The ends of an occurrence rather than fields of it.</summary>
+    public const string Entity = "entity";
+    public const string From = "from";
+    public const string Origin = "origin";
+    public const string Source = "source";
+
+    public static Sort? Parse(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+        raw = raw.Trim();
+        var descending = raw.StartsWith('-');
+        var column = descending ? raw[1..] : raw;
+        // A column name reaches SQL as a JSON path, like a condition's field.
+        if (!Condition.SafeName.IsMatch(column))
+        {
+            throw new QueryError($"invalid sort '{raw}'");
+        }
+        return new Sort(column, descending);
+    }
+
+    public override string ToString() => (Descending ? "-" : "") + Column;
 }
 
 /// <summary>
@@ -177,7 +209,8 @@ public sealed record Query(
     IReadOnlyList<Stage> Stages,
     bool Frozen = false,
     int Page = 1,
-    int PageSize = 25)
+    int PageSize = 25,
+    Sort? Sort = null)
 {
     public const int MaxStages = 4;      // hops, on top of stage 0
     public const int MaxConditions = 3;  // per stage
@@ -226,6 +259,12 @@ public sealed record Query(
         foreach (var stage in Stages.Skip(1))
         {
             _ = stage.Hop ?? throw new QueryError("every stage after the first needs a hop");
+        }
+        // Where a row began is the entity it came from only when there is one hop;
+        // further back it is a set per row, which has no one value to order by.
+        if (Sort?.Column == Sort.Origin && Stages.Count != 2)
+        {
+            throw new QueryError("rows can be ordered by where they began only across one hop");
         }
     }
 

@@ -9,14 +9,16 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSortModule, Sort, SortDirection } from '@angular/material/sort';
 import { MatTableModule } from '@angular/material/table';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import {
-  ALL, Api, EntityRow, LONG_TEXT, Occurrence, Query, Result, Schema, Stage, Value,
+  ALL, Api, EXPIRY, EntityRow, LONG_TEXT, Occurrence, Query, Result, Schema, Stage, TAGS, Value,
   blankCondition, decodeStages, paramsOf,
 } from '../api';
+import { ExpiryComponent } from '../expiry';
 import { Saved } from '../saved';
 import { BuilderComponent } from './builder';
 
@@ -41,10 +43,10 @@ interface View {
   selector: 'app-query-page',
   imports: [
     DecimalPipe,
-    FormsModule, RouterLink, BuilderComponent,
+    FormsModule, RouterLink, BuilderComponent, ExpiryComponent,
     MatButtonModule, MatCardModule, MatChipsModule,
     MatFormFieldModule, MatIconModule, MatInputModule,
-    MatPaginatorModule, MatProgressBarModule, MatTableModule, MatTooltipModule,
+    MatPaginatorModule, MatProgressBarModule, MatSortModule, MatTableModule, MatTooltipModule,
   ],
   templateUrl: './query-page.html',
 })
@@ -58,6 +60,7 @@ export class QueryPageComponent {
   readonly query = signal<Query>({ type: '', key: null, stages: [], frozen: false, page: 1 });
   readonly error = signal<string | null>(null);
   readonly loading = signal(false);
+  readonly exporting = signal(false);
 
   /** The name being given to this query, while one is being given. */
   readonly naming = signal<string | null>(null);
@@ -77,6 +80,13 @@ export class QueryPageComponent {
   readonly listsEntities = computed(() => this.view()?.entities ?? true);
   readonly result = computed(() => this.view()?.result ?? null);
 
+  /** The order asked for, split the way the table's header wants it. */
+  readonly sortColumn = computed(() => (this.query().sort ?? '').replace(/^-/, ''));
+  readonly sortDirection = computed<SortDirection>(() => {
+    const sort = this.query().sort;
+    return !sort ? '' : sort.startsWith('-') ? 'desc' : 'asc';
+  });
+
   constructor() {
     this.api.schema().subscribe((schema) => {
       this.schema.set(schema);
@@ -91,6 +101,7 @@ export class QueryPageComponent {
           key,
           stages,
           frozen: params.get('frozen') === '1',
+          sort: params.get('sort'),
           page: Number(params.get('page') ?? 1),
         });
         this.load();
@@ -129,12 +140,46 @@ export class QueryPageComponent {
   }
 
   onStages(stages: Stage[]): void {
-    this.apply({ ...this.query(), stages });
+    // A different number of hops is a different table, whose columns the old order
+    // may not be one of.
+    const sort = stages.length === this.query().stages.length ? this.query().sort : null;
+    this.apply({ ...this.query(), stages, sort });
   }
 
   onType(type: string): void {
-    // A different type starts a different query; its old hops cannot apply.
+    // A different type starts a different query; its old hops and its order cannot apply.
     this.apply({ type, key: null, stages: [{ hop: null, match: ALL, conditions: [blankCondition()] }], frozen: this.query().frozen });
+  }
+
+  /** A header clicked: ascending, then descending, then back to the default order. */
+  onSort(event: Sort): void {
+    const sort = event.direction ? `${event.direction === 'desc' ? '-' : ''}${event.active}` : null;
+    this.apply({ ...this.query(), sort });
+  }
+
+  /**
+   * Whether a column can order the table. A list of tags or of sources has no one
+   * value to order by, and where a row began is a set once there is more than one hop.
+   */
+  sortable(column: string): boolean {
+    if (column === 'sources' || this.schema()?.field_types?.[column] === TAGS) return false;
+    return column !== 'origin' || this.query().stages.length === 2;
+  }
+
+  /** The whole answer as a file, in the order and with the columns on screen. */
+  export(): void {
+    this.exporting.set(true);
+    this.api.csv(this.query()).subscribe({
+      next: (file) => {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(file);
+        link.download = `${this.query().type}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        this.exporting.set(false);
+      },
+      error: () => this.exporting.set(false),
+    });
   }
 
   /** Let go of the pinned entity and start from the whole type instead. */
@@ -171,6 +216,21 @@ export class QueryPageComponent {
       .join(', ');
   }
 
+  /** A list of tags, which a cell shows as chips rather than as JSON. */
+  isList(value: unknown): boolean {
+    return Array.isArray(value);
+  }
+
+  /** A deadline, which a table shows with how near it is. */
+  expiry(column: string): boolean {
+    return this.schema()?.field_types?.[column] === EXPIRY;
+  }
+
+  /** The columns that name an entity, which link to it and never wrap. */
+  named(column: string): boolean {
+    return ['natural_key', 'entity', 'from', 'origin'].includes(column);
+  }
+
   /** Prose, which a table shows cut short rather than letting it widen the row. */
   long(column: string): boolean {
     return this.schema()?.field_types?.[column] === LONG_TEXT;
@@ -191,6 +251,7 @@ export class QueryPageComponent {
   label(column: string): string {
     if (column === 'entity') return this.view()?.result.reached ?? 'Entity';
     if (column === 'from') return 'Via';
+    if (column === 'origin') return this.query().type;
     if (column === 'source' || column === 'sources') return 'Reported by';
     if (column === 'natural_key') return this.query().type;
     return this.schema()?.labels?.[column] ?? column.replace(/_/g, ' ');
@@ -228,7 +289,10 @@ export class QueryPageComponent {
     if (entities) {
       return ['natural_key', ...(result.columns ?? []), 'sources'];
     }
+    // Where the row began, unless the query began at one entity and every row
+    // would say the same; then the entity it came through, once that is not the same thing.
+    const origin = query.key ? [] : ['origin'];
     const via = query.stages.length > 2 ? ['from'] : [];
-    return [...via, 'entity', ...(result.columns ?? []), 'source'];
+    return [...origin, ...via, 'entity', ...(result.columns ?? []), 'source'];
   }
 }

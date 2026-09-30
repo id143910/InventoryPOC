@@ -21,6 +21,8 @@ export const DATE = 'date';
 export const NUMBER = 'number';
 export const TAGS = 'tags';
 export const LONG_TEXT = 'long_text';
+/** A date that is a deadline: asked like a date, shown as how near it is. */
+export const EXPIRY = 'expiry';
 
 /** Operators that ask for a threshold rather than a value. */
 export const ORDERING = ['before', 'after', 'greater than', 'less than'];
@@ -52,6 +54,8 @@ export interface Query {
   page?: number;
   /** Asked for by the dashboard, which wants a count and a few names, not a table. */
   page_size?: number;
+  /** One column to order by, `-column` for descending. Absent is the default order. */
+  sort?: string | null;
 }
 
 /** One merged header field: the trusted value, and who disagreed. */
@@ -141,6 +145,8 @@ export interface Entity extends EntityRow {
 
 /** One relation row: the entity reached, and what makes this row distinct. */
 export interface Occurrence {
+  /** The stage-0 entities this row began from. Empty when the query began at one. */
+  origins: string[];
   from: { type: string; natural_key: string };
   entity: { type: string; natural_key: string };
   metadata: Record<string, unknown>;
@@ -158,6 +164,14 @@ export interface Result<T> {
   /** One per declared metadata key of the last hop's shape. Absent with no hops. */
   columns?: string[];
   reached?: string;
+  sort?: string;
+}
+
+/** One entity a search found. */
+export interface Found {
+  type: string;
+  label: string;
+  natural_key: string;
 }
 
 export interface Schema {
@@ -269,6 +283,16 @@ export class Api {
     );
   }
 
+  /** Entities by any part of their key, those starting with it first. */
+  search(text: string): Observable<Found[]> {
+    return this.http.get<Found[]>('/api/search', { params: { q: text } });
+  }
+
+  /** The same query as a file: every row rather than a page. */
+  csv(query: Query): Observable<Blob> {
+    return this.http.post('/api/query/csv', query, { responseType: 'blob' });
+  }
+
   private run<T>(query: Query): Observable<Result<T>> {
     return this.http.post<Result<T>>('/api/query', query, {
       params: { page: query.page ?? 1 },
@@ -294,7 +318,7 @@ export function entryFor(operator: string, type: string): string {
 
 /** What an empty threshold box says it will take. */
 export function hintFor(type: string): string {
-  if (type === DATE) return '2027-06-01 or now+60d';
+  if (type === DATE || type === EXPIRY) return '2027-06-01 or now+60d';
   if (type === TAGS) return 'a tag';
   return type === NUMBER ? 'a number' : 'text';
 }
@@ -317,6 +341,7 @@ export function paramsOf(query: Query, page = 1): Record<string, string | null> 
     key: query.key || null,
     stages: encodeStages(query.stages),
     frozen: query.frozen ? '1' : null,
+    sort: query.sort || null,
     page: page > 1 ? String(page) : null,
   };
 }
@@ -342,4 +367,31 @@ export function decodeStages(raw: string | null): Stage[] | null {
   } catch {
     return null;
   }
+}
+
+/** How near a deadline is, in words, and how worried to be about it. */
+export interface Nearness {
+  words: string;
+  tone: 'past' | 'soon' | 'later';
+}
+
+/** Anything under this many days away is close enough to colour. */
+export const SOON_DAYS = 30;
+
+export function nearness(value: unknown, today = new Date()): Nearness | null {
+  const text = typeof value === 'string' ? value : '';
+  if (!/^\d{4}-\d{2}-\d{2}/.test(text)) return null;
+  const day = 86_400_000;
+  const due = Date.UTC(+text.slice(0, 4), +text.slice(5, 7) - 1, +text.slice(8, 10));
+  const now = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const days = Math.round((due - now) / day);
+  const span = (count: number) => {
+    const size = Math.abs(count);
+    if (size >= 365) return `${Math.round(size / 365)} year${Math.round(size / 365) === 1 ? '' : 's'}`;
+    if (size >= 60) return `${Math.round(size / 30)} months`;
+    return `${size} day${size === 1 ? '' : 's'}`;
+  };
+  if (days === 0) return { words: 'today', tone: 'past' };
+  if (days < 0) return { words: `${span(days)} ago`, tone: 'past' };
+  return { words: `in ${span(days)}`, tone: days < SOON_DAYS ? 'soon' : 'later' };
 }

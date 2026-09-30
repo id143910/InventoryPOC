@@ -464,6 +464,14 @@ hold for an entity rather than for one of its source rows. EF would either fight
 or force raw SQL anyway, and [Runner.cs](api/Inventory.Api/Queries/Runner.cs) lets you
 read exactly what the database will do.
 
+### Expiries and prose
+
+Two more field types change how a value is shown rather than what can be asked of
+it. An `expiry` is asked exactly like a `date`, and is shown with how near it is —
+amber inside a month, rose once past — in tables and on an entity's header. A
+`long_text` is asked `contains` only, and a table shows one line of it with the
+rest on hover. `current_not_after` and `not_after` are expiries; `comment` is prose.
+
 ## API
 
 Browsable at `/docs`; this is the same list, in the order worth reading it.
@@ -473,7 +481,11 @@ Browsable at `/docs`; this is the same list, in the order worth reading it.
 - `GET /api/stage?type=&key=&hop=` — what one stage can offer: the hops available
   from where it stands, and the fields a condition on it can be about
 - `POST /api/values` — the values one condition's field takes
-- `POST /api/query` — the table's query, whatever shape it is
+- `POST /api/query` — the table's query, whatever shape it is; `"sort": "-not_after"`
+  orders it by one column, and each occurrence says which stage-0 entities it began from
+- `POST /api/query/csv` — the same query as a file: every row up to 10,000, with the
+  columns the table shows
+- `GET /api/search?q=` — entities whose key contains the text, for jumping to one
 - `PUT /api/entities/{type}/{natural_key}/manual` — what a person says: the one
   write, and the only endpoint that is not a read
 - `GET|POST /api/entities/{type}/{natural_key}/plugins/{name}` — run one plugin:
@@ -496,7 +508,7 @@ Browsable at `/docs`; this is the same list, in the order worth reading it.
 ```
 
 ```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/query -ContentType 'application/json' -Body '{"type":"server","stages":[{"match":"any","conditions":[{"field":"entity:environment","value":"staging"},{"field":"entity:environment","value":"development"}]}]}'
+Invoke-RestMethod -Method Post http://127.0.0.1:5080/api/query -ContentType 'application/json' -Body '{"type":"server","stages":[{"match":"any","conditions":[{"field":"entity:environment","value":"staging"},{"field":"entity:environment","value":"development"}]}]}'
 ```
 
 Omit `key` to start from the whole type; give no hops and the rows are entities.

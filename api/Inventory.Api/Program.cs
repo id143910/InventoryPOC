@@ -224,33 +224,56 @@ app.MapPost("/api/query", (QueryBody body, IDbConnection db, Config config, Runn
     var query = body.ToQuery(config);
     if (query.ListsEntities)
     {
-        var keys = runner.Keys(db, query);
-        var views = entities.Views(db, keys.Items);
+        var (keys, views) = Tables.Entities(db, query, runner, entities);
         return Results.Ok(new
         {
             reads = query.Reads(config),
             columns = config.Type(query.Type).Unified.Select(field => field.Key),
+            sort = query.Sort?.ToString(),
             data = keys.Items.Select(key => Dto.Of(views[(key.Type, key.Key)])),
             total = keys.Total,
             page = keys.PageNumber,
             pages = keys.Pages,
         });
     }
-    var rows = runner.Occurrences(db, query);
-    var standing = query.Types[^2];
+    var (rows, origins) = Tables.Occurrences(db, query, runner);
     return Results.Ok(new
     {
         reads = query.Reads(config),
-        columns = query.Last.Hop!.Shape(config, standing).Columns,
+        columns = query.Last.Hop!.Shape(config, query.Types[^2]).Columns,
         reached = query.Last.Hop!.OtherType,
-        data = rows.Items.Select(Dto.Of),
+        sort = query.Sort?.ToString(),
+        data = rows.Items.Select(row => Dto.Of(row, origins)),
         total = rows.Total,
         page = rows.PageNumber,
         pages = rows.Pages,
     });
 })
     .WithTags("Query")
-    .WithSummary("A start and a chain of stages, each narrowed by up to three conditions. With no hops the rows are entities; with hops they are the occurrences of the last one. A query that cannot be built as asked comes back 400 with the reason.");
+    .WithSummary("A start and a chain of stages, each narrowed by up to three conditions. With no hops the rows are entities; with hops they are the occurrences of the last one, each with the stage-0 entities it began from. `sort` orders by one column (`-name` for descending). A query that cannot be built as asked comes back 400 with the reason.");
+
+// The same query as a file: every row rather than a page, and the columns the table
+// shows, so what is downloaded is what was on screen.
+app.MapPost("/api/query/csv", (QueryBody body, IDbConnection db, Config config, Runner runner,
+                              EntityReader entities) =>
+{
+    var query = body.ToQuery(config) with { Page = 1, PageSize = Tables.MaxExport };
+    return Results.File(Tables.Csv(db, query, config, runner, entities), "text/csv", "inventory.csv");
+})
+    .WithTags("Query")
+    .WithSummary($"The same query as CSV: every row up to 10,000 rather than a page, with the columns the table shows.");
+
+// Entities by any part of their key, for the search box. Those known only from a
+// relation are included, since their pages open like any other.
+app.MapGet("/api/search", (string q, IDbConnection db, Config config, Runner runner, int limit = 12) =>
+    runner.Search(db, q, Math.Clamp(limit, 1, 50)).Select(item => new
+    {
+        type = item.Type,
+        label = config.Label(item.Type),
+        natural_key = item.Key,
+    }))
+    .WithTags("Query")
+    .WithSummary("Entities whose key contains the text, those starting with it first. For jumping straight to one entity's page.");
 
 // The values one condition's field takes, for its picker. The same read the query
 // uses, addressed on its own - the Python implementation computes this while
@@ -340,8 +363,9 @@ internal static class Dto
         values = view.Values.Select(Of),
     };
 
-    public static object Of(Occurrence row) => new
+    public static object Of(Occurrence row, IReadOnlyDictionary<string, IReadOnlyList<string>> origins) => new
     {
+        origins = origins.GetValueOrDefault(row.FromKey) ?? [],
         from = new { type = row.FromType, natural_key = row.FromKey },
         entity = new { type = row.ToType, natural_key = row.ToKey },
         metadata = row.Metadata,
@@ -399,7 +423,8 @@ internal sealed record QueryBody(
     List<StageBody>? Stages,
     bool Frozen = false,
     int Page = 1,
-    int PageSize = 25)
+    int PageSize = 25,
+    string? Sort = null)
 {
     public Query ToQuery(Config config)
     {
@@ -411,7 +436,84 @@ internal sealed record QueryBody(
                     Condition.Build(config, item.Field, item.Operator, item.Value))]))
             .ToList();
         return new Query(Type, string.IsNullOrEmpty(Key) ? null : Key, stages, Frozen,
-            Math.Max(1, Page), Math.Clamp(PageSize, 1, Query.MaxPageSize));
+            Math.Max(1, Page), Math.Clamp(PageSize, 1, Query.MaxPageSize),
+            Inventory.Api.Queries.Sort.Parse(Sort));
+    }
+}
+
+/// <summary>
+/// A query's rows, read once for both the table and the file - so the two can only
+/// ever disagree about format, never about which rows or which columns.
+/// </summary>
+internal static class Tables
+{
+    public const int MaxExport = 10_000;
+
+    public static (Page<EntityKey> Keys, Dictionary<(string, string), EntityView> Views) Entities(
+        IDbConnection db, Query query, Runner runner, EntityReader entities)
+    {
+        var keys = runner.Keys(db, query);
+        return (keys, entities.Views(db, keys.Items));
+    }
+
+    /// <summary>The rows, and where each began - unless the query began at one entity.</summary>
+    public static (Page<Occurrence> Rows, IReadOnlyDictionary<string, IReadOnlyList<string>> Origins) Occurrences(
+        IDbConnection db, Query query, Runner runner)
+    {
+        var rows = runner.Occurrences(db, query);
+        var origins = query.Key is null
+            ? runner.Origins(db, query, [.. rows.Items.Select(row => row.FromKey)])
+            : new Dictionary<string, IReadOnlyList<string>>();
+        return (rows, origins);
+    }
+
+    public static byte[] Csv(IDbConnection db, Query query, Config config, Runner runner, EntityReader entities)
+    {
+        var lines = new List<IEnumerable<object?>>();
+        if (query.ListsEntities)
+        {
+            var (keys, views) = Entities(db, query, runner, entities);
+            var fields = config.Type(query.Type).Unified.Select(field => field.Key).ToList();
+            lines.Add([query.Type, .. fields, "sources"]);
+            foreach (var view in keys.Items.Select(key => views[(key.Type, key.Key)]))
+            {
+                var values = view.Values.ToDictionary(value => value.Key, value => value.Trusted);
+                lines.Add([view.NaturalKey, .. fields.Select(field => values.GetValueOrDefault(field)), string.Join(" ", view.Sources)]);
+            }
+        }
+        else
+        {
+            var (rows, origins) = Occurrences(db, query, runner);
+            var columns = query.Last.Hop!.Shape(config, query.Types[^2]).Columns;
+            var began = query.Key is null;
+            var via = query.Stages.Count > 2;
+            lines.Add([
+                .. began ? [query.Type] : Array.Empty<string>(),
+                .. via ? ["via"] : Array.Empty<string>(),
+                query.Last.Hop.OtherType, .. columns, "source"]);
+            foreach (var row in rows.Items)
+            {
+                lines.Add([
+                    .. began ? [string.Join(" ", origins.GetValueOrDefault(row.FromKey) ?? [])] : Array.Empty<object?>(),
+                    .. via ? [row.FromKey] : Array.Empty<object?>(),
+                    row.ToKey, .. columns.Select(column => row.Metadata.GetValueOrDefault(column)), row.Source]);
+            }
+        }
+        return System.Text.Encoding.UTF8.GetBytes(
+            string.Join("\r\n", lines.Select(line => string.Join(",", line.Select(Cell)))) + "\r\n");
+    }
+
+    /// <summary>One value, quoted when it has to be.</summary>
+    private static string Cell(object? value)
+    {
+        var text = value switch
+        {
+            null => "",
+            JsonElement { ValueKind: JsonValueKind.Array } list => string.Join(" ", list.EnumerateArray()),
+            JsonNode node when node is JsonArray list => string.Join(" ", list),
+            _ => value.ToString() ?? "",
+        };
+        return text.IndexOfAny([',', '"', '\r', '\n']) < 0 ? text : $"\"{text.Replace("\"", "\"\"")}\"";
     }
 }
 

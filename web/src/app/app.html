@@ -2,13 +2,26 @@
   The shell. Slate under everything, cyan for anything that does something - the
   same palette the server-rendered version uses, so the two can be compared on
   their behaviour rather than their colours.
+
+  The two surfaces are always one click away, and any entity is a few keystrokes.
 -->
-<mat-toolbar class="!bg-slate-900 !text-slate-300 border-b border-slate-800 gap-3">
-  <a routerLink="/" class="text-sm font-semibold tracking-tight !text-slate-300 hover:!text-cyan-300">
+<mat-toolbar class="!bg-slate-900 !text-slate-300 border-b border-slate-800 gap-2 sm:gap-4">
+  <a routerLink="/" class="text-sm font-semibold tracking-tight !text-slate-300 hover:!text-cyan-300 hover:!no-underline">
     Inventory graph
   </a>
+  <nav class="flex gap-1 text-sm">
+    @if (saved.all().length) {
+      <a routerLink="/" routerLinkActive="!bg-slate-800 !text-slate-100" [routerLinkActiveOptions]="{ exact: true }"
+         class="rounded px-2.5 py-1 !text-slate-400 hover:!bg-slate-800 hover:!no-underline">Saved</a>
+    }
+    <a routerLink="/query" routerLinkActive="!bg-slate-800 !text-slate-100"
+       class="rounded px-2.5 py-1 !text-slate-400 hover:!bg-slate-800 hover:!no-underline">Query</a>
+  </nav>
   <span class="flex-1"></span>
-  <a href="/docs" target="_blank" rel="noopener" class="text-xs">API</a>
+  <!-- Loaded once the page is idle: the autocomplete is most of its weight, and
+       nothing on first paint needs it. -->
+  @defer (on idle) { <app-search /> }
+  <a href="/docs" target="_blank" rel="noopener" class="hidden text-xs sm:inline">API</a>
 </mat-toolbar>
 
 <main class="mx-auto max-w-6xl px-4 pt-6 pb-16">

@@ -113,6 +113,8 @@ public sealed class Config
     public const string Tags = "tags";
     /// <summary>Prose a person wrote: filtered like text, shown cut short in a table.</summary>
     public const string LongText = "long_text";
+    /// <summary>A date that is a deadline: asked like a date, shown as how near it is.</summary>
+    public const string Expiry = "expiry";
 
     public const string Is = "is";
     public const string IsNot = "is not";
@@ -135,6 +137,7 @@ public sealed class Config
         {
             [Text] = [Is, IsNot, Contains],
             [Date] = [Is, IsNot, Before, After],
+            [Expiry] = [Is, IsNot, Before, After],
             [Number] = [Is, IsNot, Greater, Less],
             // A list is not equal to one of its members, so neither `is` nor
             // `contains` is offered: "tags includes audit" is the only true sentence.
