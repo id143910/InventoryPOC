@@ -387,7 +387,7 @@ source has gone quiet. This is the part a result table has no room for.
 ┌─ installed on server ──────────────┐  ┌─ managed by team ──────────────────┐
 │ 600 servers · 629 occurrences      │  │ 1 team                             │
 ├────────────────────────────────────┤  ├────────────────────────────────────┤
-│ prod-server-0001  prod-server-0005 │  │ Team 07                            │
+│ prod-server-0001  prod-server-0005 │  │ Search                             │
 │ prod-server-0008  and 597 others   │  │                                    │
 └────────────────────────────────────┘  └────────────────────────────────────┘
 ```
@@ -482,7 +482,7 @@ Browsable at `/docs`; this is the same list, in the order worth reading it.
   operators, and every field a condition can be about
 
 ```json
-{"type": "team", "key": "Team 03", "stages": [
+{"type": "team", "key": "Payments", "stages": [
   {},
   {"hop": "incoming:managed_by:certificate", "match": "any", "conditions": [
     {"field": "entity:issuer", "value": "DigiCert Global G2"},
