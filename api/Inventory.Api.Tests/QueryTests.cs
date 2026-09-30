@@ -810,9 +810,11 @@ public sealed class Tagging(Graph graph) : IClassFixture<Graph>
                 Ask.Query("server", null, Ask.Start(Stage.All, Ask.Where("entity:tags", "", Config.Includes))),
                 0, 0);
 
-            // The tags, not the lists they came in: "audit" twice and "pci" once.
+            // The tags, not the lists they came in: "audit" twice and "pci" once. The
+            // seeded data carries tags of its own, so only these two are counted here.
             Assert.Equal([("audit", 2), ("pci", 1)],
-                offered.Select(item => (item.Value, item.Count)));
+                offered.Where(item => item.Value is "audit" or "pci").Select(item => (item.Value, item.Count)));
+            Assert.DoesNotContain(offered, item => item.Value.StartsWith('['));
         }
         finally
         {
