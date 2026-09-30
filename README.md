@@ -35,6 +35,9 @@ cd api\Inventory.Api; dotnet run --urls http://127.0.0.1:5080
 cd web; npm install; npm start     # then open http://localhost:4200
 ```
 
+You need the .NET 9 SDK and Node 22.22.3+, 24.15+ or 26+ — Angular 22
+refuses to start on anything older.
+
 > The Angular dev server binds IPv6 first, so use `http://localhost:4200`, not
 > `127.0.0.1`.
 

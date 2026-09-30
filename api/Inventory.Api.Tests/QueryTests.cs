@@ -5,6 +5,7 @@ using Inventory.Api.Entities;
 using Inventory.Api.Plugins;
 using Inventory.Api.Queries;
 using Inventory.Api.Schema;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace Inventory.Api.Tests;
@@ -14,15 +15,20 @@ namespace Inventory.Api.Tests;
 ///
 /// The real `inventory.db`, not a fixture built here: it is committed with the
 /// repository precisely so that these assert against the data the application shows.
+/// Read from a copy, though, because some tests write: they clear up after
+/// themselves, but the committed file would still come back changed.
 /// </summary>
 public sealed class Graph : IDisposable
 {
     private static readonly string Root = FindRoot();
 
+    private readonly string copy = Path.Combine(Path.GetTempPath(), $"inventory-{Guid.NewGuid():N}.db");
+
     public Graph()
     {
+        File.Copy(Path.Combine(Root, "inventory.db"), copy);
         Config = Config.Load(new FileSchemaSource(Path.Combine(Root, "schema.yaml")));
-        Connection = new Db(Path.Combine(Root, "inventory.db")).Open();
+        Connection = new Db(copy).Open();
         Options = new Options(Config, new MemoryCache(new MemoryCacheOptions()));
         Ask.Config = Config;
         Entities = new EntityReader(Config);
@@ -35,7 +41,15 @@ public sealed class Graph : IDisposable
     public EntityReader Entities { get; }
     public Runner Runner { get; }
 
-    public void Dispose() => Connection.Dispose();
+    public void Dispose()
+    {
+        Connection.Dispose();
+        SqliteConnection.ClearAllPools();
+        foreach (var file in new[] { copy, $"{copy}-wal", $"{copy}-shm" })
+        {
+            File.Delete(file);
+        }
+    }
 
     private static string FindRoot()
     {
