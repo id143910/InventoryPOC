@@ -10,10 +10,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatPaginatorModule, PageEvent } from '@angular/material/paginator';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatTableModule } from '@angular/material/table';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import {
-  ALL, Api, EntityRow, Occurrence, Query, Result, Schema, Stage, Value,
+  ALL, Api, EntityRow, LONG_TEXT, Occurrence, Query, Result, Schema, Stage, Value,
   blankCondition, decodeStages, paramsOf,
 } from '../api';
 import { Saved } from '../saved';
@@ -43,7 +44,7 @@ interface View {
     FormsModule, RouterLink, BuilderComponent,
     MatButtonModule, MatCardModule, MatChipsModule,
     MatFormFieldModule, MatIconModule, MatInputModule,
-    MatPaginatorModule, MatProgressBarModule, MatTableModule,
+    MatPaginatorModule, MatProgressBarModule, MatTableModule, MatTooltipModule,
   ],
   templateUrl: './query-page.html',
 })
@@ -168,6 +169,11 @@ export class QueryPageComponent {
       .filter(([source]) => source !== value.source)
       .map(([source, reported]) => `${source} says ${reported}`)
       .join(', ');
+  }
+
+  /** Prose, which a table shows cut short rather than letting it widen the row. */
+  long(column: string): boolean {
+    return this.schema()?.field_types?.[column] === LONG_TEXT;
   }
 
   /** One merged field of an entity row, for a column that shows it. */

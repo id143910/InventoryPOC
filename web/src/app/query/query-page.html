@@ -61,6 +61,7 @@
             </th>
             <td mat-cell *matCellDef="let row"
                 class="!border-slate-800"
+                [class.whitespace-nowrap]="column === 'natural_key' || column === 'entity' || column === 'from'"
                 [class.font-mono]="column !== 'natural_key' && column !== 'entity' && column !== 'from'"
                 [class.text-xs]="column !== 'natural_key' && column !== 'entity'"
                 [class.text-slate-400]="column !== 'natural_key' && column !== 'entity' && column !== 'from'">
@@ -83,7 +84,11 @@
                   </a>
                 }
                 @default {
-                @if (listsEntities() && merged(row, column); as value) {
+                @if (long(column)) {
+                  <!-- Prose: one line, cut short, the whole of it on hover. -->
+                  <span class="block max-w-64 truncate" [matTooltip]="$any(cell(row, column))"
+                        matTooltipClass="whitespace-pre-line">{{ cell(row, column) }}</span>
+                } @else if (listsEntities() && merged(row, column); as value) {
                   <span [class.text-rose-300]="value.mismatch"
                         [title]="value.mismatch ? value.source + ' · ' + disagreement(value) : ''">
                     {{ value.value }}

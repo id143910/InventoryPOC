@@ -20,6 +20,7 @@ export const TEXT = 'text';
 export const DATE = 'date';
 export const NUMBER = 'number';
 export const TAGS = 'tags';
+export const LONG_TEXT = 'long_text';
 
 /** Operators that ask for a threshold rather than a value. */
 export const ORDERING = ['before', 'after', 'greater than', 'less than'];
