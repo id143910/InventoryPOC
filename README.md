@@ -34,6 +34,14 @@ cd web; npm install; npm start     # then open http://localhost:4200
 > The Angular dev server binds IPv6 first, so use `http://localhost:4200`, not
 > `127.0.0.1`.
 
+The API describes itself: **[http://localhost:4200/docs](http://localhost:4200/docs)**
+(or `:5080/docs` directly), which is where the application's own "API" link goes. The
+document behind it is at `/openapi/v1.json`, generated from the endpoints, so it
+cannot drift from them; what it cannot work out — why an endpoint exists, and which of
+GET or POST a plugin wants — is written on each one as a summary. The `/mock`
+endpoints are in there too, tagged `Mocks`, because seeing what a plugin actually
+calls is the point of them.
+
 Nothing else to set up: `inventory.db` is in the repository. That is deliberate — it
 is both the data the application shows and the fixture the tests read, and there is no
 generator here to rebuild it from, so it travels with the code. Its write-ahead log
@@ -450,6 +458,8 @@ or force raw SQL anyway, and [Runner.cs](api/Inventory.Api/Queries/Runner.cs) le
 read exactly what the database will do.
 
 ## API
+
+Browsable at `/docs`; this is the same list, in the order worth reading it.
 
 - `GET /api/entities/{type}/{natural_key}` — the merged view, each source's
   account, the hops it has, and the neighbourhood its page is made of

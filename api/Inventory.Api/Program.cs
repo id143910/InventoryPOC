@@ -16,6 +16,23 @@ using Inventory.Api.Schema;
 var builder = WebApplication.CreateBuilder(args);
 var root = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", ".."));
 
+// The API describes itself. The document is generated from the endpoints below, so
+// it cannot drift from them; what it cannot know is written on each one as a summary.
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, context, token) =>
+{
+    document.Info = new()
+    {
+        Title = "Inventory graph",
+        Version = "1",
+        Description =
+            "A read-only view over inventory the syncs deliver, plus the one thing a person writes. "
+            + "Read `/api/schema` first: it says which types exist, which shapes of relation are in the "
+            + "data, what may be asked of each kind of field, and what each type's plugins are - so a "
+            + "client can build a query without hard-coding any of it.",
+    };
+    return Task.CompletedTask;
+}));
+
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ISchemaSource>(
     new FileSchemaSource(builder.Configuration["Schema"] ?? Path.Combine(root, "schema.yaml")));
@@ -40,6 +57,16 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(
 var app = builder.Build();
 app.UseCors();
 
+// The document at /openapi/v1.json, and something to read it with at /docs - which is
+// where the application's own "API" link points.
+app.MapOpenApi();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/openapi/v1.json", "Inventory graph");
+    options.RoutePrefix = "docs";
+    options.DocumentTitle = "Inventory graph API";
+});
+
 // A query that cannot be built as asked is the caller's mistake, not a failure.
 app.Use(async (context, next) =>
 {
@@ -59,7 +86,9 @@ app.Use(async (context, next) =>
     }
 });
 
-app.MapGet("/health", () => new { status = "ok" });
+app.MapGet("/health", () => new { status = "ok" })
+    .WithTags("Health")
+    .WithSummary("Whether the API is up. Nothing else to read into it.");
 
 // The shapes in the data, each read from both ends, and every field a condition can
 // be about - enough to build a query without guessing. The config is YAML on disk
@@ -111,7 +140,9 @@ app.MapGet("/api/schema", (IDbConnection db, Config config, Options options) => 
         filters = item.Filters,
         description = item.Description,
     }),
-});
+})
+    .WithTags("Schema")
+    .WithSummary("Everything a query can be built out of: the shapes in the data read from both ends, what may be asked of each kind of field, the labels, the manual source and the plugins. The config is YAML on disk and JSON here.");
 
 // One entity, merged across its sources, with the hops it has and the neighbours
 // its page is made of.
@@ -144,7 +175,9 @@ app.MapGet("/api/entities/{entityType}/{naturalKey}", (
         // only itself.
         plugins = config.PluginsOf(entityType).Select(Dto.Of),
     });
-});
+})
+    .WithTags("Entities")
+    .WithSummary("One entity, merged across its sources, with each source's own account, the hops it has, the neighbourhood its page is made of, and what its plugins are.");
 
 // Run one plugin against one entity: read a box, or do an action. GET and POST both
 // map here because it is the config that decides which a plugin is, not the caller -
@@ -164,7 +197,9 @@ app.MapMethods("/api/entities/{entityType}/{naturalKey}/plugins/{name}", ["GET",
         });
     }
     return Results.Ok(Dto.Of(await plugins.Run(db, entityType, naturalKey, name)));
-});
+})
+    .WithTags("Plugins")
+    .WithSummary("Run one plugin against one entity. GET reads a box, POST does an action, and the config decides which a plugin is - so reading a page cannot press a button. A plugin that fails answers with a reason rather than failing this call.");
 
 // What a person says about one entity, merged into the manual source's row. A field
 // given as null or blank is an override let go of; the last one let go of takes the
@@ -177,7 +212,9 @@ app.MapPut("/api/entities/{entityType}/{naturalKey}/manual", (
     // Nothing useful to return: the page reads the entity again, which is one call it
     // already makes and the only way to see the facets change too.
     return Results.NoContent();
-});
+})
+    .WithTags("Entities")
+    .WithSummary("What a person says about an entity, merged into the manual source's row. That source outranks the syncs, so this is how a field is overridden, tagged or commented on without editing what ADF owns. A field given as blank is an override let go of.");
 
 // Run a query: a start, then a stage per hop, each narrowed by conditions. With no
 // hops the rows are entities; with hops they are the occurrences of the last one.
@@ -211,7 +248,9 @@ app.MapPost("/api/query", (QueryBody body, IDbConnection db, Config config, Runn
         page = rows.PageNumber,
         pages = rows.Pages,
     });
-});
+})
+    .WithTags("Query")
+    .WithSummary("A start and a chain of stages, each narrowed by up to three conditions. With no hops the rows are entities; with hops they are the occurrences of the last one. A query that cannot be built as asked comes back 400 with the reason.");
 
 // The values one condition's field takes, for its picker. The same read the query
 // uses, addressed on its own - the Python implementation computes this while
@@ -233,7 +272,9 @@ app.MapPost("/api/values", (ValuesBody body, IDbConnection db, Config config, Ru
         data = found.Take(Query.MaxValues).Select(item => new { value = item.Value, count = item.Count }),
         truncated = found.Count > Query.MaxValues,
     });
-});
+})
+    .WithTags("Query")
+    .WithSummary("The values one condition's field takes, for its picker - read from the rows the stage crosses, so a choice is only ever something that would match.");
 
 // What a stage can offer: the hops available from where it stands, and the fields a
 // condition on it can be about. The builder asks for one stage at a time.
@@ -255,7 +296,9 @@ app.MapGet("/api/stage", (
             }),
         fields = options.Fields(picked, type),
     });
-});
+})
+    .WithTags("Query")
+    .WithSummary("What one stage can offer: the hops available from where it stands, and the fields a condition on it can be about, each with how it reads.");
 
 // Stand-ins for the systems the plugins point at. Nothing else depends on them.
 app.MapMocks();

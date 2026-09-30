@@ -29,7 +29,9 @@ internal static class Mock
             url = $"https://dev.azure.com/example/_build/results?pipeline={pipeline}",
             queued_at = DateTime.UtcNow.ToString("O"),
             parameters,
-        });
+        })
+        .WithTags("Mocks")
+        .WithSummary("Stands in for Azure DevOps: queues a pipeline run. Echoes the parameters it was sent, so what a plugin filled in is visible in the answer. Not part of this API - it is here so the plugins have something real to call.");
 
         // Dynatrace: what one host's connectivity looks like right now. Stable per
         // host rather than random, so a page does not change its mind on refresh.
@@ -49,6 +51,8 @@ internal static class Mock
                     checked_at = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
                 },
             };
-        });
+        })
+        .WithTags("Mocks")
+        .WithSummary("Stands in for Dynatrace: one host's connectivity, nested under a wrapper the way a real one would be. Stable per host rather than random, so a page does not change its mind on refresh.");
     }
 }
