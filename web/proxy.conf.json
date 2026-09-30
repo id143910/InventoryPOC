@@ -1,11 +1,16 @@
 {
-  "//": "The dev server serves this app on 4200; the API answers on 5080. Everything under /api and /docs goes there, so the app only ever asks for relative paths.",
+  "//": "The dev server serves this app on 4200; the API answers on 5080. Everything under /api, /docs and /openapi goes there, so the app only ever asks for relative paths - and /docs' Swagger UI, which asks for /openapi/v1.json relative to wherever it was loaded from, finds it on either origin.",
   "/api": {
     "target": "http://127.0.0.1:5080",
     "secure": false,
     "changeOrigin": true
   },
   "/docs": {
+    "target": "http://127.0.0.1:5080",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/openapi": {
     "target": "http://127.0.0.1:5080",
     "secure": false,
     "changeOrigin": true

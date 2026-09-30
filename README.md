@@ -23,11 +23,15 @@ each hop — *the **packages** on this server*, *every **server** where a
 | [schema.yaml](schema.yaml) | YAML | what the rows cannot say about themselves |
 | `inventory.db` | SQLite | the data, committed with the repository |
 
+In VS Code, **Ctrl+Shift+B** — or Terminal > Run Task > *Run everything* — starts both
+halves in a split terminal. Ctrl+Shift+P > *Tasks: Terminate Task* stops them. By hand,
+in two terminals:
+
 ```powershell
 # the API on :5080
 cd api\Inventory.Api; dotnet run --urls http://127.0.0.1:5080
 
-# the app on :4200, proxying /api and /docs to it
+# the app on :4200, proxying /api, /docs and /openapi to it
 cd web; npm install; npm start     # then open http://localhost:4200
 ```
 

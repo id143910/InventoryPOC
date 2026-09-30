@@ -1,0 +1,53 @@
+{
+  "//": "Run the whole thing: Ctrl+Shift+B, or Terminal > Run Task > Run everything. The two halves start together in a split terminal and keep running; stopping the task stops both.",
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run everything",
+      "detail": "The API on :5080 and the app on :4200 — open http://localhost:4200",
+      "dependsOn": ["api", "web"],
+      "dependsOrder": "parallel",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "api",
+      "detail": "The .NET API, and the docs at /docs",
+      "type": "shell",
+      "command": "dotnet run --urls http://127.0.0.1:5080",
+      "options": { "cwd": "${workspaceFolder}/api/Inventory.Api" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "app",
+        "panel": "dedicated",
+        "reveal": "always",
+        "clear": true
+      }
+    },
+    {
+      "label": "web",
+      "detail": "The Angular dev server, proxying /api, /docs and /openapi to the API",
+      "type": "shell",
+      "command": "npm start",
+      "options": { "cwd": "${workspaceFolder}/web" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "group": "app",
+        "panel": "dedicated",
+        "reveal": "always",
+        "clear": true
+      }
+    },
+    {
+      "label": "test",
+      "detail": "The xUnit suite, against the committed inventory.db",
+      "type": "shell",
+      "command": "dotnet test",
+      "options": { "cwd": "${workspaceFolder}/api" },
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": ["$msCompile"]
+    }
+  ]
+}
