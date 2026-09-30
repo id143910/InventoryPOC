@@ -5,6 +5,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatSelectModule } from '@angular/material/select';
 import { MatInputModule } from '@angular/material/input';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import {
   ALL, ANY, Api, Condition, Field, Query, Stage, TEXT, blankCondition, entryFor, hintFor,
 } from '../api';
@@ -100,11 +101,14 @@ export class BuilderComponent {
 
   constructor() {
     // The builder is a view of the query; when the query changes it asks the API
-    // what each stage can now offer, one stage at a time.
-    effect(() => {
+    // what each stage can now offer, one stage at a time. What it was still asking
+    // about the last query is cancelled, so a slow answer about a query you have
+    // moved on from cannot put its pickers back.
+    effect((onCleanup) => {
       const query = this.query();
       if (query.type) {
-        this.describe(query);
+        const asking = this.describe(query);
+        onCleanup(() => asking.unsubscribe());
       }
     });
   }
@@ -195,9 +199,11 @@ export class BuilderComponent {
 
   /**
    * What each stage can offer, plus one blank stage to go further and one blank
-   * condition in each to add another.
+   * condition in each to add another. Hands back the requests it made, so the
+   * caller can cancel them.
    */
-  private describe(query: Query): void {
+  private describe(query: Query): Subscription {
+    const asking = new Subscription();
     const stages = query.stages.length ? query.stages : [{ hop: null, match: ALL, conditions: [] }];
     const types = [query.type, ...stages.slice(1).map((stage) => stage.hop!.split(':')[2])];
     const rows: StageRow[] = [];
@@ -223,7 +229,7 @@ export class BuilderComponent {
       // before it landed.
       const where = index === 0 ? query.type : types[index - 1];
       const key = index === 1 && query.key ? query.key : null;
-      this.api.stage(where, index === 0 ? null : key, stage?.hop ?? null).subscribe((options) => {
+      asking.add(this.api.stage(where, index === 0 ? null : key, stage?.hop ?? null).subscribe((options) => {
         // A field's type is the one thing a stage's own answer settles; what that
         // type allows to be asked is the schema's business, and `view` folds the two.
         const conditions = rows[index].conditions.map((row) => ({
@@ -235,14 +241,15 @@ export class BuilderComponent {
         // Only a picker needs the values; a threshold or a fragment is typed in.
         conditions.forEach((row, slot) => {
           if (!row.condition.field || entryFor(row.condition.operator, row.type)) return;
-          this.api.values(query, index, slot).subscribe((found) => {
+          asking.add(this.api.values(query, index, slot).subscribe((found) => {
             const current = rows[index].conditions[slot];
             rows[index].conditions[slot] = { ...current, values: found.data, truncated: found.truncated };
             this.rows.set([...rows]);
-          });
+          }));
         });
-      });
+      }));
     }
     this.rows.set([...rows]);
+    return asking;
   }
 }
